@@ -7,7 +7,7 @@ import FinanceCalculator from './components/FinanceCalculator';
 import ImportRequestHub from './components/ImportRequestHub';
 import BookingCalendar from './components/BookingCalendar';
 import StaffDirectory from './components/StaffDirectory';
-import CompanyLogoImg from '../assets/.aistudio/CompanyLogo.png';
+import CompanyLogoImg from '../assets/CompanyLogo.png';
 
 // Premium Logo for SOVEREIGN using uploaded asset
 const CompanyLogo = () => (
