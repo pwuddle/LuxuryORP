@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/* Light theme overrides - only using grayscale shades (all gold/yellow accents are intact) */
+.light {
+  background-color: #f5f5f5 !important; /* light gray bg */
+  color: #171717 !important;            /* dark charcoal text */
+}
+
+/* Background overrides */
+.light .bg-neutral-950,
+.light .bg-neutral-950\/90,
+.light .bg-neutral-950\/80,
+.light .bg-black,
+.light .bg-black\/90,
+.light .bg-black\/80 {
+  background-color: #f5f5f5 !important;
+}
+
+.light .bg-neutral-900,
+.light .bg-neutral-900\/90,
+.light .bg-neutral-900\/50,
+.light .bg-neutral-905,
+.light .bg-neutral-905\/60,
+.light .bg-[#313338],
+.light .bg-[#2b2d31],
+.light .bg-neutral-900\/20,
+.light .bg-zinc-950,
+.light .bg-zinc-900,
+.light .bg-neutral-955,
+.light .bg-neutral-955\/40,
+.light .bg-neutral-955\/20,
+.light .bg-neutral-955\/80 {
+  background-color: #ffffff !important;
+}
+
+.light .bg-neutral-950\/80,
+.light .bg-neutral-900\/80,
+.light .bg-neutral-950\/40,
+.light .bg-neutral-905\/40 {
+  background-color: #e5e5e5 !important;
+}
+
+.light .bg-neutral-950\/20 {
+  background-color: #e5e5e5 !important;
+}
+
+/* Hover background changes */
+.light .hover\:bg-neutral-905:hover,
+.light .hover\:bg-neutral-800:hover,
+.light .hover\:bg-neutral-850:hover,
+.light .hover\:bg-neutral-900\/90:hover {
+  background-color: #e1e1e1 !important;
+}
+
+/* Form input styling overrides */
+.light select,
+.light input,
+.light textarea {
+  background-color: #ffffff !important;
+  color: #171717 !important;
+  border-color: #d4d4d4 !important;
+}
+
+.light input::placeholder,
+.light textarea::placeholder {
+  color: #737373 !important;
+}
+
+/* Selected option item */
+.light option {
+  background-color: #ffffff !important;
+  color: #171717 !important;
+}
+
+/* Borders */
+.light .border-neutral-800,
+.light .border-neutral-850,
+.light .border-neutral-855,
+.light .border-neutral-900,
+.light .border-neutral-950,
+.light .border-neutral-850\/40,
+.light .border-neutral-900\/40,
+.light .border-[#232428],
+.light .border-white\/5 {
+  border-color: #d4d4d4 !important;
+}
+
+.light .border-b,
+.light .border-t,
+.light .border-y,
+.light .border-x {
+  border-color: #d4d4d4 !important;
+}
+
+/* Texts styling overrides */
+.light .text-slate-100,
+.light .text-slate-200,
+.light .text-slate-300,
+.light .text-white,
+.light .text-neutral-100,
+.light .text-neutral-200,
+.light .text-neutral-300,
+.light .text-neutral-305,
+.light .text-\[\#dbdee1\] {
+  color: #171717 !important;
+}
+
+.light .text-neutral-400,
+.light .text-neutral-500,
+.light .text-neutral-600,
+.light .text-slate-400,
+.light .text-slate-500 {
+  color: #525252 !important;
+}
+
+.light .text-slate-600 {
+  color: #737373 !important;
+}
+
+/* Table rows styling */
+.light .divide-neutral-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #d4d4d4 !important;
+}
+
+.light header {
+  background-color: #ffffff !important;
+  border-color: #d4d4d4 !important;
+}
+
+.light footer {
+  background-color: #ffffff !important;
+  border-color: #d4d4d4 !important;
+}
+
+/* Custom visual outline adjustments */
+.light path[stroke="#262626"] {
+  stroke: #d4d4d4 !important;
+}
+.light path[stroke="#404040"] {
+  stroke: #a3a3a3 !important;
+}
+
+.logo-title-text {
+  color: transparent !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+}
+
+/* Neutral Gradient overrules in light mode */
+.light [class*="from-neutral-"],
+.light [class*="to-neutral-"],
+.light [class*="via-neutral-"] {
+  background-image: none !important;
+}
+

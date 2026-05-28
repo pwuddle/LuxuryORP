@@ -1,0 +1,6 @@
+{
+  "name": "FiveM Luxury & Import Dealership",
+  "description": "An interactive, ultra-premium showroom website for a FiveM luxury and import car dealership. Features custom tuning simulators, a personalized license-plate designer, realistic financing models, and custom special-order request services.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
