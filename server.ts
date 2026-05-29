@@ -74,14 +74,19 @@ async function startServer() {
       return res.status(400).send("Geen autorisatiecode ontvangen van Discord.");
     }
 
-    const clientId = process.env.DISCORD_CLIENT_ID;
-    const clientSecret = process.env.DISCORD_CLIENT_SECRET;
-    const botToken = process.env.DISCORD_BOT_TOKEN;
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const rawClientId = (process.env.DISCORD_CLIENT_ID || "").trim();
+    const rawClientSecret = (process.env.DISCORD_CLIENT_SECRET || "").trim();
+    const rawBotToken = (process.env.DISCORD_BOT_TOKEN || "").trim();
+    const rawGuildId = (process.env.DISCORD_GUILD_ID || "").trim();
 
-    if (!clientId || !clientSecret || !botToken || !guildId) {
+    if (!rawClientId || !rawClientSecret || !rawBotToken || !rawGuildId) {
       return res.status(500).send("Discord app-credentials zijn incompleet geconfigureerd op de server.");
     }
+
+    const clientId = rawClientId;
+    const clientSecret = rawClientSecret;
+    const botToken = rawBotToken.startsWith("Bot ") ? rawBotToken.substring(4).trim() : rawBotToken;
+    const guildId = rawGuildId;
 
     try {
       const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
@@ -133,17 +138,19 @@ async function startServer() {
       });
 
       let roleToCheck = pane === "medewerkerpaneel" 
-        ? process.env.DISCORD_STAFF_ROLE_ID 
-        : process.env.DISCORD_CUSTOMER_ROLE_ID;
+        ? (process.env.DISCORD_STAFF_ROLE_ID || "").trim() 
+        : (process.env.DISCORD_CUSTOMER_ROLE_ID || "").trim();
 
       // If specific role configuration is empty, fallback to server membership
       let hasRole = false;
       let roleName = pane === "medewerkerpaneel" ? "Medewerker" : "Klant";
       let discordMemberData: any = null;
+      let memberRoles: string[] = [];
+      let errorBody = "";
 
       if (memberResponse.ok) {
         discordMemberData = await memberResponse.json();
-        const memberRoles = discordMemberData.roles || [];
+        memberRoles = discordMemberData.roles || [];
 
         if (roleToCheck) {
           hasRole = memberRoles.includes(roleToCheck);
@@ -152,8 +159,8 @@ async function startServer() {
           hasRole = true;
         }
       } else {
-        const errBody = await memberResponse.text();
-        console.warn("Could not fetch guild member details:", errBody);
+        errorBody = await memberResponse.text();
+        console.warn("Could not fetch guild member details:", errorBody);
       }
 
       // Check access permission
@@ -184,12 +191,73 @@ async function startServer() {
                   border: 1px solid #ed4245;
                   border-radius: 8px;
                   padding: 30px;
-                  max-width: 450px;
+                  max-width: 500px;
                   box-shadow: 0 4px 15px rgba(0,0,0,0.3);
                 }
                 h1 { color: #ed4245; margin-top: 0; font-size: 22px; }
                 p { font-size: 14px; line-height: 1.6; color: #b9bbbe; }
-                .accent { color: #d4af37; font-weight: bold; }
+                .accent { color: #A87E43; font-weight: bold; }
+                
+                .debug-panel {
+                  background: #1e1f22;
+                  border: 1px solid rgba(81, 84, 92, 0.5);
+                  border-radius: 6px;
+                  margin: 18px 0;
+                  padding: 12px;
+                  text-align: left;
+                }
+                .debug-title {
+                  cursor: pointer;
+                  font-weight: bold;
+                  font-size: 11px;
+                  color: #949ba4;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  user-select: none;
+                }
+                .debug-content {
+                  display: none;
+                  margin-top: 10px;
+                  font-size: 11px;
+                  border-top: 1px solid #2b2d31;
+                  padding-top: 10px;
+                }
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                }
+                td {
+                  padding: 4px 0;
+                  vertical-align: top;
+                  color: #dcddde;
+                  font-size: 11px;
+                }
+                td:first-child {
+                  width: 140px;
+                  font-weight: bold;
+                  color: #949ba4;
+                }
+                code {
+                  background: #111214;
+                  padding: 2px 4px;
+                  border-radius: 3px;
+                  font-family: monospace;
+                  font-size: 10.5px;
+                  color: #e3e5e8;
+                }
+                pre {
+                  margin: 0;
+                  background: #111214;
+                  padding: 6px;
+                  border-radius: 4px;
+                  max-width: 300px;
+                  overflow-x: auto;
+                  font-family: monospace;
+                  color: #f23f43;
+                  font-size: 10px;
+                }
+                
                 button {
                   background: #5865f2;
                   color: white;
@@ -208,11 +276,82 @@ async function startServer() {
               <div class="card">
                 <h1>Geen Toegang</h1>
                 <p>Hallo <strong>@${userData.username}</strong>,</p>
-                <p>Je bent succesvol ingelogd via Discord, maar je bezit niet de benodigde rol om het <span class="accent">${pane}</span> te betreden.</p>
-                <p>Vraag de serverbeheerder in onze Discord guild of je de juiste machtigingen hebt.</p>
+                <p>Je bent succesvol ingelogd via Discord, maar je bezit niet de benodigde rol om het <span class="accent">${pane === "medewerkerpaneel" ? "Medewerkerpaneel" : "Klantenpaneel"}</span> te betreden.</p>
+                
+                <div class="debug-panel">
+                  <div class="debug-title" onclick="toggleDebug()">
+                    <span>⚙️ Toon Technische Analyse (Diagnose)</span>
+                    <span id="debug-arrow">▼</span>
+                  </div>
+                  <div class="debug-content" id="debug-content">
+                    <table>
+                      <tr>
+                        <td>Gebruiker ID:</td>
+                        <td><code>${userId}</code></td>
+                      </tr>
+                      <tr>
+                        <td>Server (Guild) ID:</td>
+                        <td><code>${guildId || "(Niet geconfigureerd)"}</code></td>
+                      </tr>
+                      <tr>
+                        <td>Gewenste Rol ID:</td>
+                        <td><code>${roleToCheck || "(Geen ingesteld, verifieert enkel lidmaatschap)"}</code></td>
+                      </tr>
+                      <tr>
+                        <td>Discord API Status:</td>
+                        <td>
+                          <span style="color: ${memberResponse.ok ? '#23a55a' : '#f23f43'}; font-weight: bold;">
+                            ${memberResponse.ok ? '✅ Link OK (200 OK)' : `❌ Fout (${memberResponse.status})`}
+                          </span>
+                        </td>
+                      </tr>
+                      ${!memberResponse.ok ? `
+                      <tr>
+                        <td>Fout Details:</td>
+                        <td><pre>${errorBody || "Geen extra response body."}</pre></td>
+                      </tr>
+                      ` : `
+                      <tr>
+                        <td>Jouw Rollen op Server:</td>
+                        <td>
+                          <div style="max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px;">
+                            ${memberRoles.length > 0 
+                              ? memberRoles.map(r => `<code>${r}</code>`).join(' ') 
+                              : '<i>Geen rollen op deze server</i>'}
+                          </div>
+                        </td>
+                      </tr>
+                      `}
+                    </table>
+                    
+                    <div style="margin-top: 12px; font-size: 10.5px; border-top: 1px solid #2b2d31; padding-top: 10px; color: #949ba4; line-height: 1.4;">
+                      <strong>Diagnose tips:</strong>
+                      <ul style="margin: 4px 0 0 14px; padding: 0;">
+                        <li><strong>Status 401 (Unauthorized):</strong> De ingestelde <code>DISCORD_BOT_TOKEN</code> is ongeldig. Vul de token opnieuw in.</li>
+                        <li><strong>Status 403 (Forbidden):</strong> De Discord bot is niet uitgenodigd op de server óf mist rechten op deze specifieke guild.</li>
+                        <li><strong>Status 404 (Not Found):</strong> De <code>DISCORD_GUILD_ID</code> klopt niet óf de bot is niet aanwezig op die server.</li>
+                        <li><strong>Status 200 (OK):</strong> De bot koppeling werkt! Jouw Discord account is gevonden op de server, maar jouw <strong>Gewenste Rol ID</strong> (<code>${roleToCheck || "niet ingesteld"}</code>) komt niet voor in de lijst van rollen die je bezit. Controleer in je Discord server of de rol-id's exact matchen.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
                 <button onclick="window.close()">Sluit Venster</button>
               </div>
+              
               <script>
+                function toggleDebug() {
+                  const content = document.getElementById('debug-content');
+                  const arrow = document.getElementById('debug-arrow');
+                  if (content.style.display === 'block') {
+                    content.style.display = 'none';
+                    arrow.innerText = '▼';
+                  } else {
+                    content.style.display = 'block';
+                    arrow.innerText = '▲';
+                  }
+                }
+                
                 if (window.opener) {
                   window.opener.postMessage({ 
                     type: 'OAUTH_AUTH_FAILURE', 
