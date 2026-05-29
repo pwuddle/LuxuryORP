@@ -63,9 +63,13 @@ export default function App() {
         const loggedInUser: DiscordUser = event.data.user;
         setUser(loggedInUser);
         
-        // Routely navigate to appropriate pane based on Discord authorization role
-        if (loggedInUser.role === "Medewerker") {
-          setActivePage(ActivePage.Medewerkerpaneel);
+        // Routely navigate to appropriate pane based on requested pane
+        if (requestedPane === "medewerkerpaneel") {
+          if (loggedInUser.role === "Medewerker" || loggedInUser.isManager || loggedInUser.isOwner) {
+            setActivePage(ActivePage.Medewerkerpaneel);
+          } else {
+            setActivePage(ActivePage.Klantenpaneel);
+          }
         } else {
           setActivePage(ActivePage.Klantenpaneel);
         }
@@ -133,9 +137,13 @@ export default function App() {
 
     setUser(simulatedUser);
     
-    // Auto-navigate
-    if (simulatedUser.role === "Medewerker") {
-      setActivePage(ActivePage.Medewerkerpaneel);
+    // Auto-navigate based on requested pane
+    if (requestedPane === "medewerkerpaneel") {
+      if (simulatedUser.role === "Medewerker" || simulatedUser.isManager || simulatedUser.isOwner) {
+        setActivePage(ActivePage.Medewerkerpaneel);
+      } else {
+        setActivePage(ActivePage.Klantenpaneel);
+      }
     } else {
       setActivePage(ActivePage.Klantenpaneel);
     }

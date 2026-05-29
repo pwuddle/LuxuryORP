@@ -139,9 +139,13 @@ async function startServer() {
 
       const staffRoleId = (process.env.DISCORD_STAFF_ROLE_ID || "").trim();
       const customerRoleId = (process.env.DISCORD_CUSTOMER_ROLE_ID || "").trim();
+      const managerRoleId = (process.env.DISCORD_MANAGER_ROLE_ID || "").trim();
+      const ownerRoleId = (process.env.DISCORD_OWNER_ROLE_ID || "").trim();
 
       let hasStaffRole = false;
       let hasCustomerRole = false;
+      let hasManagerRole = false;
+      let hasOwnerRole = false;
       let memberRoles: string[] = [];
       let discordMemberData: any = null;
       let discordRoles: any[] = [];
@@ -152,23 +156,27 @@ async function startServer() {
         memberRoles = discordMemberData.roles || [];
 
         hasStaffRole = staffRoleId ? memberRoles.includes(staffRoleId) : false;
+        hasManagerRole = managerRoleId ? memberRoles.includes(managerRoleId) : false;
+        hasOwnerRole = ownerRoleId ? memberRoles.includes(ownerRoleId) : false;
         hasCustomerRole = customerRoleId ? memberRoles.includes(customerRoleId) : true;
       } else {
         errorBody = await memberResponse.text();
         console.warn("Could not fetch guild member details:", errorBody);
       }
 
+      const isEmployee = hasStaffRole || hasManagerRole || hasOwnerRole;
+
       // Determine authorization based on requested pane and roles
       let hasRole = false;
       if (pane === "medewerkerpaneel") {
-        hasRole = hasStaffRole;
+        hasRole = isEmployee;
       } else {
-        // Can be customer OR staff to view customers page (since staff is also customer)
-        hasRole = hasCustomerRole || hasStaffRole;
+        // Can be customer OR staff/manager/owner to view customers page (since employee is also customer)
+        hasRole = hasCustomerRole || isEmployee;
       }
 
       // If they are allowed in, but roles are empty because of lack of configuration, allow it
-      if (memberResponse.ok && !staffRoleId && !customerRoleId) {
+      if (memberResponse.ok && !staffRoleId && !customerRoleId && !managerRoleId && !ownerRoleId) {
         hasRole = true;
       }
 
@@ -186,7 +194,17 @@ async function startServer() {
             if (Array.isArray(fetchedRoles)) {
               discordRoles = fetchedRoles;
               // Map role IDs to names
-              if (hasStaffRole && staffRoleId) {
+              if (hasOwnerRole && ownerRoleId) {
+                const matchedRole = discordRoles.find((r: any) => r.id === ownerRoleId);
+                if (matchedRole) {
+                  discordRoleName = matchedRole.name;
+                }
+              } else if (hasManagerRole && managerRoleId) {
+                const matchedRole = discordRoles.find((r: any) => r.id === managerRoleId);
+                if (matchedRole) {
+                  discordRoleName = matchedRole.name;
+                }
+              } else if (hasStaffRole && staffRoleId) {
                 const matchedRole = discordRoles.find((r: any) => r.id === staffRoleId);
                 if (matchedRole) {
                   discordRoleName = matchedRole.name;
@@ -205,7 +223,7 @@ async function startServer() {
       }
 
       if (!discordRoleName) {
-        discordRoleName = hasStaffRole ? "Medewerker" : "Klant";
+        discordRoleName = hasOwnerRole ? "Eigenaar" : hasManagerRole ? "Manager" : hasStaffRole ? "Medewerker" : "Klant";
       }
 
       // Check access permission
@@ -297,10 +315,12 @@ async function startServer() {
         username: userData.username,
         globalName: userData.global_name || userData.username,
         avatar: avatarUrl,
-        // If they possess the Staff role on the server, grant them "Medewerker" role automatically for smooth double access
-        role: hasStaffRole ? "Medewerker" : "Klant",
+        // If they possess the Staff, Manager or Owner role on the server, grant them "Medewerker" role automatically for smooth double access
+        role: isEmployee ? "Medewerker" : "Klant",
         discordRoleName: discordRoleName,
         guildMember: true,
+        isManager: hasManagerRole,
+        isOwner: hasOwnerRole,
       };
 
       // Output authorization success page

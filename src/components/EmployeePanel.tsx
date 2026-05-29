@@ -8,7 +8,7 @@ import { motion } from "motion/react";
 import { SafeUser } from "../App";
 import { 
   Users, Car, Landmark, ArrowRight, ShieldAlert, CheckCircle, 
-  XCircle, Coins, Plus, Minus, FilePlus, Sparkles, TrendingUp, RefreshCw 
+  XCircle, Coins, Plus, Minus, FilePlus, Sparkles, TrendingUp, RefreshCw, Lock
 } from "lucide-react";
 import { INITIAL_SALES } from "../data";
 import { SaleRecord, Vehicle, PurchaseRequest } from "../types";
@@ -49,6 +49,7 @@ export default function EmployeePanel({
   const totalRevenue = sales.reduce((sum, item) => sum + item.pricePaid, 0);
   const activeRequestsCount = requests.filter(r => r.status === "In Behandeling").length;
   const totalVehiclesStock = vehicles.reduce((sum, item) => sum + item.stock, 0);
+  const isManagerOrOwner = !!(user?.isManager || user?.isOwner);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(price);
@@ -195,29 +196,41 @@ export default function EmployeePanel({
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6" id="metrics-panel-row">
-        {/* Metric 1 */}
-        <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between`}>
-          <div>
+        {/* Metric 1 - Totale Omzet */}
+        <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between relative overflow-hidden`}>
+          <div className={!isManagerOrOwner ? "blur-[2px] opacity-25 select-none" : ""}>
             <span className={`text-[10px] ${textMuted} uppercase block`}>Totale Omzet</span>
             <strong className={`text-lg font-black ${textPrimary} font-sans`}>{formatPrice(totalRevenue)}</strong>
           </div>
-          <div className="w-10 h-10 bg-[#A87E43]/15 text-[#A87E43] rounded-lg flex items-center justify-center">
+          <div className={`w-10 h-10 ${isManagerOrOwner ? "bg-[#A87E43]/15 text-[#A87E43]" : "bg-neutral-850 text-neutral-600"} rounded-lg flex items-center justify-center shrink-0`}>
             <Coins className="w-5 h-5" />
           </div>
+          {!isManagerOrOwner && (
+            <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px] flex items-center justify-center gap-1.5 transition-all">
+              <Lock className="w-3.5 h-3.5 text-[#A87E43]" />
+              <span className="text-[9px] font-black text-[#A87E43] uppercase tracking-wider">Manager Vereist</span>
+            </div>
+          )}
         </div>
 
-        {/* Metric 2 */}
-        <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between`}>
-          <div>
+        {/* Metric 2 - Aantal Verkopen */}
+        <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between relative overflow-hidden`}>
+          <div className={!isManagerOrOwner ? "blur-[2px] opacity-25 select-none" : ""}>
             <span className={`text-[10px] ${textMuted} uppercase block`}>Aantal Verkopen</span>
             <strong className={`text-lg font-black ${textPrimary}`}>{sales.length} geregistreerd</strong>
           </div>
-          <div className="w-10 h-10 bg-green-500/10 text-green-400 rounded-lg flex items-center justify-center">
+          <div className={`w-10 h-10 ${isManagerOrOwner ? "bg-green-500/10 text-green-400" : "bg-neutral-850 text-neutral-600"} rounded-lg flex items-center justify-center shrink-0`}>
             <TrendingUp className="w-5 h-5" />
           </div>
+          {!isManagerOrOwner && (
+            <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px] flex items-center justify-center gap-1.5 transition-all">
+              <Lock className="w-3.5 h-3.5 text-[#A87E43]" />
+              <span className="text-[9px] font-black text-[#A87E43] uppercase tracking-wider">Manager Vereist</span>
+            </div>
+          )}
         </div>
 
-        {/* Metric 3 */}
+        {/* Metric 3 - Lopende Offertes (Visible to all employees) */}
         <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between`}>
           <div>
             <span className={`text-[10px] ${textMuted} uppercase block`}>Lopende Offertes</span>
@@ -225,20 +238,26 @@ export default function EmployeePanel({
               {activeRequestsCount} Verzoek{activeRequestsCount !== 1 ? "en" : ""}
             </strong>
           </div>
-          <div className="w-10 h-10 bg-yellow-500/10 text-yellow-400 rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 bg-yellow-500/10 text-yellow-400 rounded-lg flex items-center justify-center shrink-0">
             <RefreshCw className="w-5 h-5 animate-spin-slow" />
           </div>
         </div>
 
-        {/* Metric 4 */}
-        <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between`}>
-          <div>
+        {/* Metric 4 - Totale Voorraad */}
+        <div className={`p-5 rounded-xl ${bgCard} border ${borderCard} shadow-md flex items-center justify-between relative overflow-hidden`}>
+          <div className={!isManagerOrOwner ? "blur-[2px] opacity-25 select-none" : ""}>
             <span className={`text-[10px] ${textMuted} uppercase block`}>Totale Voorraad</span>
             <strong className={`text-lg font-black ${textPrimary}`}>{totalVehiclesStock} Voertuigen</strong>
           </div>
-          <div className="w-10 h-10 bg-purple-500/10 text-purple-400 rounded-lg flex items-center justify-center">
+          <div className={`w-10 h-10 ${isManagerOrOwner ? "bg-purple-500/10 text-purple-400" : "bg-neutral-850 text-neutral-600"} rounded-lg flex items-center justify-center shrink-0`}>
             <Car className="w-5 h-5" />
           </div>
+          {!isManagerOrOwner && (
+            <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px] flex items-center justify-center gap-1.5 transition-all">
+              <Lock className="w-3.5 h-3.5 text-[#A87E43]" />
+              <span className="text-[9px] font-black text-[#A87E43] uppercase tracking-wider">Manager Vereist</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -405,7 +424,20 @@ export default function EmployeePanel({
         <div className="lg:col-span-6 space-y-8">
           
           {/* Inventory Fleet Controller */}
-          <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4`}>
+          <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4 relative overflow-hidden`}>
+            {!isManagerOrOwner && (
+              <div className="absolute inset-0 bg-[#1e1f22]/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
+                <div className="w-12 h-12 bg-[#A87E43]/15 text-[#A87E43] rounded-full flex items-center justify-center">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-white uppercase tracking-wide">Manager-rechten Vereist</h4>
+                  <p className="text-[11px] text-[#949ba4] max-w-xs mx-auto">
+                    U heeft geen geautoriseerde Manager of Eigenaar rollen om voertuigen toe te voegen, voorraden aan te passen, of prijzen te overschrijven.
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between border-b border-[#A87E43]/15 pb-3">
               <h3 className={`text-base font-extrabold ${textPrimary} flex items-center gap-2`}>
                 <Car className="w-5 h-5 text-[#A87E43]" />
@@ -473,7 +505,20 @@ export default function EmployeePanel({
           </div>
           
           {/* Recent registered sales history log */}
-          <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4`}>
+          <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4 relative overflow-hidden`}>
+            {!isManagerOrOwner && (
+              <div className="absolute inset-0 bg-[#1e1f22]/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
+                <div className="w-12 h-12 bg-neutral-800 text-neutral-500 rounded-full flex items-center justify-center">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-white uppercase tracking-wide">Financiële Toegang Beperkt</h4>
+                  <p className="text-[11px] text-[#949ba4] max-w-xs mx-auto">
+                    Alleen Managers en de Eigenaar kunnen de live verkoopgeschiedenis en transactie-logs inzien.
+                  </p>
+                </div>
+              </div>
+            )}
             <h3 className={`text-sm font-extrabold ${textPrimary} border-b border-[#A87E43]/15 pb-2`}>
               Recente Transacties (Geschiedenis)
             </h3>

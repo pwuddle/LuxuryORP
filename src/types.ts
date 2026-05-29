@@ -36,6 +36,8 @@ export interface DiscordUser {
   role: "Klant" | "Medewerker" | "Geen";
   guildMember?: boolean;
   discordRoleName?: string;
+  isManager?: boolean;
+  isOwner?: boolean;
 }
 
 export interface SaleRecord {

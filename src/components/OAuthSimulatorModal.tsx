@@ -15,7 +15,7 @@ interface OAuthSimulatorModalProps {
 }
 
 export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel }: OAuthSimulatorModalProps) {
-  const handleSimulate = (userType: "klant" | "medewerker" | "invalid") => {
+  const handleSimulate = (userType: "klant" | "medewerker" | "manager" | "eigenaar" | "invalid") => {
     const selectedUser = SIMULATED_USERS[userType];
     onSuccess(selectedUser);
   };
@@ -121,7 +121,7 @@ export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel
             {/* option 2: Medewerker */}
             <div
               className={`p-4 bg-[#202225] hover:bg-[#35393e] border border-[#202225] hover:border-[#5865F2]/40 rounded-lg cursor-pointer transition-all flex items-center justify-between group ${
-                requestedPanel === "medewerkerpaneel" ? "ring-1 ring-[#A87E43]/40" : ""
+                requestedPanel === "medewerkerpaneel" ? "ring-1 ring-[#5865F2]/40" : ""
               }`}
               onClick={() => handleSimulate("medewerker")}
               id="sim-profile-staff"
@@ -154,7 +154,87 @@ export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel
                 <span className="inline-flex items-center gap-1 text-xs text-purple-400 font-medium">
                   <ShieldCheck className="w-3.5 h-3.5" /> Beheerders Toegang
                 </span>
-                <span className="text-[10px] text-[#8e9297] mt-0.5">Geschikt voor Medewerkerpaneel</span>
+                <span className="text-[10px] text-[#8e9297] mt-0.5">Alleen Sales Registreren</span>
+              </div>
+            </div>
+
+            {/* option 2b: Manager */}
+            <div
+              className={`p-4 bg-[#202225] hover:bg-[#35393e] border border-[#202225] hover:border-[#A87E43]/40 rounded-lg cursor-pointer transition-all flex items-center justify-between group ${
+                requestedPanel === "medewerkerpaneel" ? "ring-1 ring-[#A87E43]/40" : ""
+              }`}
+              onClick={() => handleSimulate("manager")}
+              id="sim-profile-manager"
+            >
+              <div className="flex items-center gap-3">
+                <img
+                  src={SIMULATED_USERS.manager.avatar}
+                  alt="Manager avatar"
+                  className="w-11 h-11 rounded-full bg-cover border border-[#40444b]"
+                  referrerPolicy="no-referrer"
+                />
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-white group-hover:text-[#A87E43] transition-colors">
+                      {SIMULATED_USERS.manager.globalName}
+                    </span>
+                    <span className="text-xs text-[#8e9297]">@{SIMULATED_USERS.manager.username}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-green-500/10 text-green-400 rounded-sm">
+                      Serverlid
+                    </span>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded-sm">
+                      Manager-Rol
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right flex flex-col items-end">
+                <span className="inline-flex items-center gap-1 text-xs text-amber-400 font-medium">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Full Management
+                </span>
+                <span className="text-[10px] text-[#8e9297] mt-0.5">Catalogus & Financiën Beheer</span>
+              </div>
+            </div>
+
+            {/* option 2c: Owner / Eigenaar */}
+            <div
+              className={`p-4 bg-[#202225] hover:bg-[#35393e] border border-[#202225] hover:border-[#FF5555]/40 rounded-lg cursor-pointer transition-all flex items-center justify-between group ${
+                requestedPanel === "medewerkerpaneel" ? "ring-1 ring-[#FF5555]/40" : ""
+              }`}
+              onClick={() => handleSimulate("eigenaar")}
+              id="sim-profile-owner"
+            >
+              <div className="flex items-center gap-3">
+                <img
+                  src={SIMULATED_USERS.eigenaar.avatar}
+                  alt="Eigenaar avatar"
+                  className="w-11 h-11 rounded-full bg-cover border border-[#40444b]"
+                  referrerPolicy="no-referrer"
+                />
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-white group-hover:text-[#FF5555] transition-colors">
+                      {SIMULATED_USERS.eigenaar.globalName}
+                    </span>
+                    <span className="text-xs text-[#8e9297]">@{SIMULATED_USERS.eigenaar.username}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-green-500/10 text-green-400 rounded-sm">
+                      Serverlid
+                    </span>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-red-500/15 text-red-400 rounded-sm">
+                      Eigenaar-Rol
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right flex flex-col items-end">
+                <span className="inline-flex items-center gap-1 text-xs text-red-400 font-medium">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Eigenaar Rechten
+                </span>
+                <span className="text-[10px] text-[#8e9297] mt-0.5">Alle Rechten & Beheer</span>
               </div>
             </div>
 
