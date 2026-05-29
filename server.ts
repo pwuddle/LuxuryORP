@@ -1,7 +1,12 @@
-import express from 'express';
-import path from 'path';
-import { createServer as createViteServer } from 'vite';
-import dotenv from 'dotenv';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import express from "express";
+import path from "path";
+import dotenv from "dotenv";
+import { createServer as createViteServer } from "vite";
 
 // Load environment variables
 dotenv.config();
@@ -10,361 +15,328 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // JSON and URL-encoded body parsers
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-  // Helper to determine the callback URI dynamically
-  const getRedirectUri = (req: express.Request) => {
-    // If APP_URL is configured (e.g. on Cloud Run), use it
-    if (process.env.APP_URL) {
-      const cleanUrl = process.env.APP_URL.replace(/\/$/, '');
-      return `${cleanUrl}/auth/callback`;
-    }
-    // Otherwise fallback to request host
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    return `${protocol}://${host}/auth/callback`;
-  };
+  // API Route: Check if Discord configuration is live
+  app.get("/api/auth/config", (req, res) => {
+    const hasConfig = !!(
+      process.env.DISCORD_CLIENT_ID &&
+      process.env.DISCORD_CLIENT_SECRET &&
+      process.env.DISCORD_BOT_TOKEN &&
+      process.env.DISCORD_GUILD_ID
+    );
 
-  // 1. Get Discord Auth URL
-  app.get('/api/auth/discord/url', (req, res) => {
+    res.json({
+      configured: hasConfig,
+      clientId: process.env.DISCORD_CLIENT_ID || null,
+      guildId: process.env.DISCORD_GUILD_ID || null,
+      customerRoleId: process.env.DISCORD_CUSTOMER_ROLE_ID || null,
+      staffRoleId: process.env.DISCORD_STAFF_ROLE_ID || null,
+    });
+  });
+
+  // API Route: Build Discord OAuth URL or request simulation
+  app.get("/api/auth/url", (req, res) => {
+    const pane = (req.query.pane as string) || "klantenpaneel";
     const clientId = process.env.DISCORD_CLIENT_ID;
-    if (!clientId) {
-      return res.status(200).json({ 
-        error: 'DISCORD_CLIENT_ID_MISSING',
-        message: 'De Discord Client ID is niet geconfigureerd in de omgevingsvariabelen (.env in AI Studio).' 
-      });
+    const guildId = process.env.DISCORD_GUILD_ID;
+
+    // Check if configuration is missing
+    if (!clientId || !process.env.DISCORD_CLIENT_SECRET || !process.env.DISCORD_BOT_TOKEN || !guildId) {
+      return res.json({ simulate: true, pane });
     }
 
-    const redirectUri = getRedirectUri(req);
-    const scope = 'identify guilds guilds.members.read';
-    
+    // Standard redirect callback URL
+    // Use the supplied APP_URL or dynamically construct context
+    const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const redirectUri = `${host}/auth/callback`;
+
+    // Construct authorization URL
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
-      response_type: 'code',
-      scope: scope
+      response_type: "code",
+      scope: "identify",
+      state: pane,
     });
 
-    const authUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
-    res.json({ url: authUrl });
+    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+    res.json({ simulate: false, url: discordAuthUrl });
   });
 
-  // 2. OAuth2 Callback Endpoint
-  app.get('/auth/callback', async (req, res) => {
-    const code = req.query.code as string;
+  // OAuth Callback endpoint with postMessage
+  app.get(["/auth/callback", "/auth/callback/"], async (req, res) => {
+    const { code, state: pane } = req.query;
+
     if (!code) {
-      return res.send(createResponseHtml({ 
-        status: 'error', 
-        error: 'Geen authorisatiecode ontvangen van Discord.' 
-      }));
+      return res.status(400).send("Geen autorisatiecode ontvangen van Discord.");
     }
 
-    const clientId = process.env.DISCORD_CLIENT_ID!;
-    const clientSecret = process.env.DISCORD_CLIENT_SECRET!;
-    const redirectUri = getRedirectUri(req);
-    const guildId = process.env.DISCORD_GUILD_ID || '109283748293749283';
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+    const botToken = process.env.DISCORD_BOT_TOKEN;
+    const guildId = process.env.DISCORD_GUILD_ID;
 
-    console.log(`[OAuth2] Initiating token exchange:`);
-    console.log(` - Client ID: ${clientId}`);
-    console.log(` - Client Secret Length: ${clientSecret ? clientSecret.length : 0}`);
-    console.log(` - Redirect URI: ${redirectUri}`);
-    console.log(` - Guild ID: ${guildId}`);
+    if (!clientId || !clientSecret || !botToken || !guildId) {
+      return res.status(500).send("Discord app-credentials zijn incompleet geconfigureerd op de server.");
+    }
 
     try {
-      // Step A: Exchange code for Access Token
-      const bodyParams = new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: redirectUri
-      });
+      const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+      const redirectUri = `${host}/auth/callback`;
 
-      const tokenResponse = await fetch('https://discord.com/api/v10/oauth2/token', {
-        method: 'POST',
+      // 1. Exchange the temporary code for an Access Token
+      const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: bodyParams.toString()
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: "authorization_code",
+          code: code as string,
+          redirect_uri: redirectUri,
+        }),
       });
 
       if (!tokenResponse.ok) {
-        const errDetails = await tokenResponse.text();
-        console.error('Discord Token Exchange Failed:', errDetails);
-        throw new Error(`Discord token exchange returned status ${tokenResponse.status} with body: ${errDetails}`);
+        const errorText = await tokenResponse.text();
+        console.error("Token exchange failed:", errorText);
+        throw new Error(`Token exchange failed: ${tokenResponse.status}`);
       }
 
-      const tokenData = await tokenResponse.json() as { access_token: string };
+      const tokenData = await tokenResponse.json();
       const accessToken = tokenData.access_token;
 
-      // Step B: Get User Profile Info
-      const userResponse = await fetch('https://discord.com/api/v10/users/@me', {
+      // 2. Fetch the user info from Discord
+      const userResponse = await fetch("https://discord.com/api/users/@me", {
         headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+          Authorization: `Bearer ${accessToken}`,
+        },
       });
 
       if (!userResponse.ok) {
-        throw new Error(`Failed to fetch user profile: status ${userResponse.status}`);
+        throw new Error("Mislukt om Discord gebruikersgegevens op te halen.");
       }
 
-      const userData = await userResponse.json() as {
-        id: string;
-        username: string;
-        global_name?: string;
-        avatar?: string;
-      };
+      const userData = await userResponse.json();
+      const userId = userData.id;
 
-      // Step C: Get Guild Member Object (fetch user roles in specific Server)
-      const memberResponse = await fetch(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, {
+      // 3. Query the Discord API to check if they are in the Server and have the appropriate Role
+      const memberResponse = await fetch(`https://discord.com/api/guilds/${guildId}/members/${userId}`, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+          Authorization: `Bot ${botToken}`,
+        },
       });
 
-      if (memberResponse.status === 404) {
-        // Not in the guild
-        return res.send(createResponseHtml({
-          status: 'error',
-          error: 'NOT_IN_GUILD',
-          user: userData,
-          guildId: guildId
-        }));
+      let roleToCheck = pane === "medewerkerpaneel" 
+        ? process.env.DISCORD_STAFF_ROLE_ID 
+        : process.env.DISCORD_CUSTOMER_ROLE_ID;
+
+      // If specific role configuration is empty, fallback to server membership
+      let hasRole = false;
+      let roleName = pane === "medewerkerpaneel" ? "Medewerker" : "Klant";
+      let discordMemberData: any = null;
+
+      if (memberResponse.ok) {
+        discordMemberData = await memberResponse.json();
+        const memberRoles = discordMemberData.roles || [];
+
+        if (roleToCheck) {
+          hasRole = memberRoles.includes(roleToCheck);
+        } else {
+          // If no specific role is listed, allow if they are in the Discord guild
+          hasRole = true;
+        }
+      } else {
+        const errBody = await memberResponse.text();
+        console.warn("Could not fetch guild member details:", errBody);
       }
 
-      if (!memberResponse.ok) {
-        throw new Error(`Failed to fetch guild member details: status ${memberResponse.status}`);
+      // Check access permission
+      if (!hasRole) {
+        // Output failure page containing postMessage to notify application that role was not found
+        return res.send(`
+          <!doctype html>
+          <html lang="nl">
+            <head>
+              <meta charset="utf-8">
+              <title>Geen Toegang - Perseus Dealership</title>
+              <style>
+                body {
+                  background: #36393f;
+                  color: #dcddde;
+                  font-family: sans-serif;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  height: 100vh;
+                  margin: 0;
+                  padding: 20px;
+                  text-align: center;
+                }
+                .card {
+                  background: #2f3136;
+                  border: 1px solid #ed4245;
+                  border-radius: 8px;
+                  padding: 30px;
+                  max-width: 450px;
+                  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                }
+                h1 { color: #ed4245; margin-top: 0; font-size: 22px; }
+                p { font-size: 14px; line-height: 1.6; color: #b9bbbe; }
+                .accent { color: #d4af37; font-weight: bold; }
+                button {
+                  background: #5865f2;
+                  color: white;
+                  border: none;
+                  padding: 10px 20px;
+                  border-radius: 4px;
+                  font-weight: bold;
+                  cursor: pointer;
+                  margin-top: 15px;
+                  transition: background 0.2s;
+                }
+                button:hover { background: #4752c4; }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <h1>Geen Toegang</h1>
+                <p>Hallo <strong>@${userData.username}</strong>,</p>
+                <p>Je bent succesvol ingelogd via Discord, maar je bezit niet de benodigde rol om het <span class="accent">${pane}</span> te betreden.</p>
+                <p>Vraag de serverbeheerder in onze Discord guild of je de juiste machtigingen hebt.</p>
+                <button onclick="window.close()">Sluit Venster</button>
+              </div>
+              <script>
+                if (window.opener) {
+                  window.opener.postMessage({ 
+                    type: 'OAUTH_AUTH_FAILURE', 
+                    error: 'Niet geautoriseerd: ontbrekende serverrol.',
+                    user: {
+                      id: "${userId}",
+                      username: "${userData.username}",
+                      globalName: "${userData.global_name || userData.username}",
+                      avatar: "${userData.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${userData.avatar}.png` : null}",
+                      role: "Geen",
+                    }
+                  }, '*');
+                }
+              </script>
+            </body>
+          </html>
+        `);
       }
 
-      const memberData = await memberResponse.json() as {
-        roles: string[];
-        nick?: string;
+      // Successful auth! Define returned user profile object
+      const avatarUrl = userData.avatar 
+        ? `https://cdn.discordapp.com/avatars/${userId}/${userData.avatar}.png` 
+        : null;
+
+      const authenticatedUser = {
+        id: userId,
+        username: userData.username,
+        globalName: userData.global_name || userData.username,
+        avatar: avatarUrl,
+        role: pane === "medewerkerpaneel" ? "Medewerker" : "Klant",
+        guildMember: true,
       };
 
-      // Success! Pass details back
-      return res.send(createResponseHtml({
-        status: 'success',
-        user: {
-          id: userData.id,
-          username: userData.username,
-          globalName: userData.global_name || userData.username,
-          avatar: userData.avatar,
-          nickname: memberData.nick || userData.global_name || userData.username
-        },
-        roles: memberData.roles
-      }));
-
-    } catch (error: any) {
-      console.error('OAuth processing error:', error);
-      let errorMsg = error.message || 'Onbekende interne fout.';
-      if (errorMsg.includes('401') || errorMsg.includes('invalid_client') || errorMsg.includes('Unauthorized')) {
-        errorMsg = 'Discord token exchange returned status 401 (Unauthorized). Dit betekent dat de ingestelde DISCORD_CLIENT_ID of DISCORD_CLIENT_SECRET ongeldig, niet correct opgeslagen, of verlopen is in de AI Studio Secrets instellingen, of dat de geconfigureerde Redirect URI in de Discord Developer Portal afwijkt.';
-      }
-      return res.send(createResponseHtml({
-        status: 'error',
-        error: errorMsg
-      }));
-    }
-  });
-
-  // HTML response utility to send message using postMessage
-  function createResponseHtml(data: any) {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Authenticeren...</title>
-          <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-              background-color: #1a1a1a;
-              color: #ffffff;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              margin: 0;
-              text-align: center;
-              padding: 20px;
-            }
-            .card {
-              background-color: #2b2b2b;
-              border-radius: 12px;
-              padding: 30px;
-              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-              max-width: 400px;
-              width: 100%;
-            }
-            h1 { font-size: 1.5rem; margin-bottom: 10px; color: #5865F2; }
-            p { font-size: 0.9rem; color: #cccccc; line-height: 1.4; }
-            .spinner {
-              border: 4px solid rgba(255, 255, 255, 0.1);
-              width: 36px;
-              height: 36px;
-              border-radius: 50%;
-              border-left-color: #5865F2;
-              animation: spin 1s linear infinite;
-              margin: 20px auto;
-            }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div class="spinner"></div>
-            <h1>Sovereign Verificatie</h1>
-            <p>Verbinding maken met de showroom catalogus. Dit venster sluit zo direct automatisch...</p>
-          </div>
-          <script>
-            (function() {
-              const payload = ${JSON.stringify(data)};
+      // Output authorization success page
+      res.send(`
+        <!doctype html>
+        <html lang="nl">
+          <head>
+            <meta charset="utf-8">
+            <title>Succesvol geautoriseerd - Perseus Dealership</title>
+            <style>
+              body {
+                background: #36393f;
+                color: #dcddde;
+                font-family: sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                text-align: center;
+              }
+              .card {
+                background: #2f3136;
+                border: 1px solid #43b581;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 400px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+              }
+              h1 { color: #43b581; margin-top: 0; font-size: 22px; }
+              p { font-size: 14px; color: #b9bbbe; }
+              .spinner {
+                border: 4px solid rgba(255,255,255,0.1);
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                border-left-color: #5865f2;
+                animation: spin 1s linear infinite;
+                margin: 20px auto 0 auto;
+              }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>Inloggen geslaagd!</h1>
+              <p>Welkom, <strong>${authenticatedUser.globalName}</strong>.</p>
+              <p>Je account is geverifieerd. Dit venster sluit automatisch...</p>
+              <div class="spinner"></div>
+            </div>
+            <script>
               if (window.opener) {
-                window.opener.postMessage({ type: 'OAUTH_AUTH_COMPLETED', payload: payload }, '*');
+                window.opener.postMessage({ 
+                  type: 'OAUTH_AUTH_SUCCESS', 
+                  user: ${JSON.stringify(authenticatedUser)}
+                }, '*');
                 setTimeout(() => {
                   window.close();
-                }, 1000);
+                }, 1200);
               } else {
-                document.querySelector('h1').textContent = 'Fout';
-                document.querySelector('p').textContent = 'Dit venster kon niet communiceren met de hoofdpagina. Sluit dit tabblad handmatig.';
-                document.querySelector('.spinner').style.display = 'none';
+                window.location.href = '/';
               }
-            })();
-          </script>
-        </body>
-      </html>
-    `;
-  }
+            </script>
+          </body>
+        </html>
+      `);
 
-  // 4. Get active members of the Discord Guild with the Medewerker/Staff role
-  app.get('/api/discord/members', async (req, res) => {
-    const guildId = '1509514294956523590';
-    const medewerkerRoleId = '1509514357950910595';
-    const botToken = process.env.DISCORD_BOT_TOKEN;
-
-    // Define a robust fallback list of the 5 real Discord-configured members with this role
-    const fallbackMembers = [
-      {
-        displayName: 'Luna Sterling',
-        discordTag: 'LunaS#0001',
-        userId: '160350858178822144',
-        roles: ['1509514357950910595'],
-        status: 'Online',
-        avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop',
-        role: 'VIP Conciërge & Speciale Bestellingen',
-        phone: '555-1442'
-      },
-      {
-        displayName: 'Trevor Vance',
-        discordTag: 'TrevorGearbox#5060',
-        userId: '248350858178822555',
-        roles: ['1509514357950910595'],
-        status: 'Idle',
-        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop',
-        role: 'Hoofdingenieur Import & Dynotuner',
-        phone: '555-8831'
-      },
-      {
-        displayName: 'Marco Vercetti',
-        discordTag: 'ApexVercetti#8999',
-        userId: '312350858178822444',
-        roles: ['1509514357950910595'],
-        status: 'Online',
-        avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop',
-        role: 'Dealertopman & Hoofdimporteur',
-        phone: '555-0199'
-      },
-      {
-        displayName: 'Enzo Ferrari',
-        discordTag: 'EnzoFerrari#1212',
-        userId: '405350858178822222',
-        roles: ['1509514357950910595'],
-        status: 'Online',
-        avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&h=150&fit=crop',
-        role: 'Smarte Verkoper',
-        phone: '555-7711'
-      },
-      {
-        displayName: 'Dealership Admin',
-        discordTag: 'Admin#9999',
-        userId: '876543210987654321',
-        roles: ['1509514357950910595'],
-        status: 'DND',
-        avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop',
-        role: 'Executive Dealer Directeur',
-        phone: '555-9999'
-      }
-    ];
-
-    if (!botToken) {
-      // Return fallback members if no bot token is configured
-      return res.json({ members: fallbackMembers, source: 'fallback' });
-    }
-
-    try {
-      // Attempt to hit Discord's standard endpoint for fetching guild members
-      const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
-        headers: {
-          'Authorization': `Bot ${botToken}`
-        }
-      });
-
-      if (!response.ok) {
-        console.warn(`Discord API listing failed with status ${response.status}. Using high-quality simulation data.`);
-        return res.json({ members: fallbackMembers, source: 'fallback_error' });
-      }
-
-      const rawMembers = await response.json() as any[];
-      
-      // Filter members who have the Medewerker role ID
-      const filtered = rawMembers
-        .filter(m => m.roles && m.roles.includes(medewerkerRoleId))
-        .map(m => {
-          const user = m.user || {};
-          const displayName = m.nick || user.global_name || user.username || 'Onbekende Medewerker';
-          const discordTag = user.username + (user.discriminator && user.discriminator !== '0' ? `#${user.discriminator}` : '');
-          
-          return {
-            displayName,
-            discordTag,
-            userId: user.id,
-            roles: m.roles,
-            status: 'Online',
-            avatarUrl: user.avatar 
-              ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
-              : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop',
-            role: 'Geverifieerd Medewerker',
-            phone: '555-' + user.id.slice(-4)
-          };
-        });
-
-      if (filtered.length === 0) {
-        return res.json({ members: fallbackMembers, source: 'empty_result' });
-      }
-
-      res.json({ members: filtered, source: 'discord_api' });
-    } catch (err: any) {
-      console.warn('Error in /api/discord/members, using high-quality fallback data:', err.message);
-      res.json({ members: fallbackMembers, source: 'error' });
+    } catch (error: any) {
+      console.error("OAuth process error:", error);
+      res.status(500).send(`Autorisatie is mislukt vanwege een interne fout: ${error.message}`);
     }
   });
 
-  // 3. Mount Vite middleware in development
-  if (process.env.NODE_ENV !== 'production') {
+  // Serve static UI assets based on runtime environment (Express + Vite)
+  if (process.env.NODE_ENV !== "production") {
+    // Vite Dev server handles client side source code
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa',
+      appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // Production static asset serving from compiled dist
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Perseus Dealership Server listening on port ${PORT}`);
+    console.log(`Local url: http://localhost:${PORT}`);
   });
 }
 
