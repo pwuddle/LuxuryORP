@@ -180,7 +180,7 @@ export default function EmployeePanel({
           <div>
             <h2 className={`text-lg font-bold ${textPrimary}`}>Welkom, {user.globalName || user.username}</h2>
             <p className={`text-xs text-purple-400 font-semibold uppercase tracking-wider mt-0.5`}>
-              Rol: Perseus Sales Manager
+              Rol: {user.discordRoleName || "Medewerker"}
             </p>
           </div>
         </div>

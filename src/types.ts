@@ -35,6 +35,7 @@ export interface DiscordUser {
   avatar: string | null;
   role: "Klant" | "Medewerker" | "Geen";
   guildMember?: boolean;
+  discordRoleName?: string;
 }
 
 export interface SaleRecord {

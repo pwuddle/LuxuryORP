@@ -137,35 +137,81 @@ async function startServer() {
         },
       });
 
-      let roleToCheck = pane === "medewerkerpaneel" 
-        ? (process.env.DISCORD_STAFF_ROLE_ID || "").trim() 
-        : (process.env.DISCORD_CUSTOMER_ROLE_ID || "").trim();
+      const staffRoleId = (process.env.DISCORD_STAFF_ROLE_ID || "").trim();
+      const customerRoleId = (process.env.DISCORD_CUSTOMER_ROLE_ID || "").trim();
 
-      // If specific role configuration is empty, fallback to server membership
-      let hasRole = false;
-      let roleName = pane === "medewerkerpaneel" ? "Medewerker" : "Klant";
-      let discordMemberData: any = null;
+      let hasStaffRole = false;
+      let hasCustomerRole = false;
       let memberRoles: string[] = [];
+      let discordMemberData: any = null;
+      let discordRoles: any[] = [];
       let errorBody = "";
 
       if (memberResponse.ok) {
         discordMemberData = await memberResponse.json();
         memberRoles = discordMemberData.roles || [];
 
-        if (roleToCheck) {
-          hasRole = memberRoles.includes(roleToCheck);
-        } else {
-          // If no specific role is listed, allow if they are in the Discord guild
-          hasRole = true;
-        }
+        hasStaffRole = staffRoleId ? memberRoles.includes(staffRoleId) : false;
+        hasCustomerRole = customerRoleId ? memberRoles.includes(customerRoleId) : true;
       } else {
         errorBody = await memberResponse.text();
         console.warn("Could not fetch guild member details:", errorBody);
       }
 
+      // Determine authorization based on requested pane and roles
+      let hasRole = false;
+      if (pane === "medewerkerpaneel") {
+        hasRole = hasStaffRole;
+      } else {
+        // Can be customer OR staff to view customers page (since staff is also customer)
+        hasRole = hasCustomerRole || hasStaffRole;
+      }
+
+      // If they are allowed in, but roles are empty because of lack of configuration, allow it
+      if (memberResponse.ok && !staffRoleId && !customerRoleId) {
+        hasRole = true;
+      }
+
+      // Fetch actual Discord roles to get role names (non-blocking, fallback gracefully)
+      let discordRoleName = "";
+      if (hasRole && memberResponse.ok) {
+        try {
+          const rolesResponse = await fetch(`https://discord.com/api/guilds/${guildId}/roles`, {
+            headers: {
+              Authorization: `Bot ${botToken}`,
+            },
+          });
+          if (rolesResponse.ok) {
+            const fetchedRoles = await rolesResponse.json();
+            if (Array.isArray(fetchedRoles)) {
+              discordRoles = fetchedRoles;
+              // Map role IDs to names
+              if (hasStaffRole && staffRoleId) {
+                const matchedRole = discordRoles.find((r: any) => r.id === staffRoleId);
+                if (matchedRole) {
+                  discordRoleName = matchedRole.name;
+                }
+              } else if (hasCustomerRole && customerRoleId) {
+                const matchedRole = discordRoles.find((r: any) => r.id === customerRoleId);
+                if (matchedRole) {
+                  discordRoleName = matchedRole.name;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Could not fetch guild roles details:", err);
+        }
+      }
+
+      if (!discordRoleName) {
+        discordRoleName = hasStaffRole ? "Medewerker" : "Klant";
+      }
+
       // Check access permission
       if (!hasRole) {
         // Output failure page containing postMessage to notify application that role was not found
+        // Remove technical analysis completely as requested
         return res.send(`
           <!doctype html>
           <html lang="nl">
@@ -198,66 +244,6 @@ async function startServer() {
                 p { font-size: 14px; line-height: 1.6; color: #b9bbbe; }
                 .accent { color: #A87E43; font-weight: bold; }
                 
-                .debug-panel {
-                  background: #1e1f22;
-                  border: 1px solid rgba(81, 84, 92, 0.5);
-                  border-radius: 6px;
-                  margin: 18px 0;
-                  padding: 12px;
-                  text-align: left;
-                }
-                .debug-title {
-                  cursor: pointer;
-                  font-weight: bold;
-                  font-size: 11px;
-                  color: #949ba4;
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  user-select: none;
-                }
-                .debug-content {
-                  display: none;
-                  margin-top: 10px;
-                  font-size: 11px;
-                  border-top: 1px solid #2b2d31;
-                  padding-top: 10px;
-                }
-                table {
-                  width: 100%;
-                  border-collapse: collapse;
-                }
-                td {
-                  padding: 4px 0;
-                  vertical-align: top;
-                  color: #dcddde;
-                  font-size: 11px;
-                }
-                td:first-child {
-                  width: 140px;
-                  font-weight: bold;
-                  color: #949ba4;
-                }
-                code {
-                  background: #111214;
-                  padding: 2px 4px;
-                  border-radius: 3px;
-                  font-family: monospace;
-                  font-size: 10.5px;
-                  color: #e3e5e8;
-                }
-                pre {
-                  margin: 0;
-                  background: #111214;
-                  padding: 6px;
-                  border-radius: 4px;
-                  max-width: 300px;
-                  overflow-x: auto;
-                  font-family: monospace;
-                  color: #f23f43;
-                  font-size: 10px;
-                }
-                
                 button {
                   background: #5865f2;
                   color: white;
@@ -278,80 +264,10 @@ async function startServer() {
                 <p>Hallo <strong>@${userData.username}</strong>,</p>
                 <p>Je bent succesvol ingelogd via Discord, maar je bezit niet de benodigde rol om het <span class="accent">${pane === "medewerkerpaneel" ? "Medewerkerpaneel" : "Klantenpaneel"}</span> te betreden.</p>
                 
-                <div class="debug-panel">
-                  <div class="debug-title" onclick="toggleDebug()">
-                    <span>⚙️ Toon Technische Analyse (Diagnose)</span>
-                    <span id="debug-arrow">▼</span>
-                  </div>
-                  <div class="debug-content" id="debug-content">
-                    <table>
-                      <tr>
-                        <td>Gebruiker ID:</td>
-                        <td><code>${userId}</code></td>
-                      </tr>
-                      <tr>
-                        <td>Server (Guild) ID:</td>
-                        <td><code>${guildId || "(Niet geconfigureerd)"}</code></td>
-                      </tr>
-                      <tr>
-                        <td>Gewenste Rol ID:</td>
-                        <td><code>${roleToCheck || "(Geen ingesteld, verifieert enkel lidmaatschap)"}</code></td>
-                      </tr>
-                      <tr>
-                        <td>Discord API Status:</td>
-                        <td>
-                          <span style="color: ${memberResponse.ok ? '#23a55a' : '#f23f43'}; font-weight: bold;">
-                            ${memberResponse.ok ? '✅ Link OK (200 OK)' : `❌ Fout (${memberResponse.status})`}
-                          </span>
-                        </td>
-                      </tr>
-                      ${!memberResponse.ok ? `
-                      <tr>
-                        <td>Fout Details:</td>
-                        <td><pre>${errorBody || "Geen extra response body."}</pre></td>
-                      </tr>
-                      ` : `
-                      <tr>
-                        <td>Jouw Rollen op Server:</td>
-                        <td>
-                          <div style="max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px;">
-                            ${memberRoles.length > 0 
-                              ? memberRoles.map(r => `<code>${r}</code>`).join(' ') 
-                              : '<i>Geen rollen op deze server</i>'}
-                          </div>
-                        </td>
-                      </tr>
-                      `}
-                    </table>
-                    
-                    <div style="margin-top: 12px; font-size: 10.5px; border-top: 1px solid #2b2d31; padding-top: 10px; color: #949ba4; line-height: 1.4;">
-                      <strong>Diagnose tips:</strong>
-                      <ul style="margin: 4px 0 0 14px; padding: 0;">
-                        <li><strong>Status 401 (Unauthorized):</strong> De ingestelde <code>DISCORD_BOT_TOKEN</code> is ongeldig. Vul de token opnieuw in.</li>
-                        <li><strong>Status 403 (Forbidden):</strong> De Discord bot is niet uitgenodigd op de server óf mist rechten op deze specifieke guild.</li>
-                        <li><strong>Status 404 (Not Found):</strong> De <code>DISCORD_GUILD_ID</code> klopt niet óf de bot is niet aanwezig op die server.</li>
-                        <li><strong>Status 200 (OK):</strong> De bot koppeling werkt! Jouw Discord account is gevonden op de server, maar jouw <strong>Gewenste Rol ID</strong> (<code>${roleToCheck || "niet ingesteld"}</code>) komt niet voor in de lijst van rollen die je bezit. Controleer in je Discord server of de rol-id's exact matchen.</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-
                 <button onclick="window.close()">Sluit Venster</button>
               </div>
               
               <script>
-                function toggleDebug() {
-                  const content = document.getElementById('debug-content');
-                  const arrow = document.getElementById('debug-arrow');
-                  if (content.style.display === 'block') {
-                    content.style.display = 'none';
-                    arrow.innerText = '▼';
-                  } else {
-                    content.style.display = 'block';
-                    arrow.innerText = '▲';
-                  }
-                }
-                
                 if (window.opener) {
                   window.opener.postMessage({ 
                     type: 'OAUTH_AUTH_FAILURE', 
@@ -361,7 +277,7 @@ async function startServer() {
                       username: "${userData.username}",
                       globalName: "${userData.global_name || userData.username}",
                       avatar: "${userData.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${userData.avatar}.png` : null}",
-                      role: "Geen",
+                      role: "Geen"
                     }
                   }, '*');
                 }
@@ -381,7 +297,9 @@ async function startServer() {
         username: userData.username,
         globalName: userData.global_name || userData.username,
         avatar: avatarUrl,
-        role: pane === "medewerkerpaneel" ? "Medewerker" : "Klant",
+        // If they possess the Staff role on the server, grant them "Medewerker" role automatically for smooth double access
+        role: hasStaffRole ? "Medewerker" : "Klant",
+        discordRoleName: discordRoleName,
         guildMember: true,
       };
 
