@@ -91,7 +91,7 @@ export default function StaffDirectory({ isDarkMode = true }: { isDarkMode?: boo
       </div>
 
       {/* Roster Table Layout */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[350px] overflow-y-auto pr-1 scrollbar-thin">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className={`border-b text-[9px] font-mono uppercase tracking-wider transition-colors duration-300 ${

@@ -15,7 +15,7 @@ export const DISCORD_CONFIG = {
     {
       roleId: '1509514357950910595',
       roleName: 'Medewerker',
-      description: 'Medewerker Luxury'
+      description: 'Deeltijd & Voltijd dealermedewerkers'
     }
   ],
 

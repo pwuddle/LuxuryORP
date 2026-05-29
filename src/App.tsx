@@ -70,7 +70,16 @@ import {
   Eye,
   Pencil,
   Sun,
-  Moon
+  Moon,
+  Key,
+  Bot,
+  Copy,
+  Terminal,
+  MessageSquare,
+  Settings,
+  Code,
+  AlertCircle,
+  Globe
 } from 'lucide-react';
 
 const TABS = [
@@ -107,10 +116,141 @@ export default function App() {
   const [calcDate, setCalcDate] = useState('2026-05-01');
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerBsn, setSelectedCustomerBsn] = useState<string | null>(null);
+  const [customerStatuses, setCustomerStatuses] = useState<Record<string, { status: string; note: string }>>(() => {
+    const saved = localStorage.getItem('veloce_customer_statuses');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return {
+      'ORP-BSN-10029384': { status: 'Actief / Geautoriseerd', note: 'Trouwe klant, altijd snelle bank betalingen.' },
+      'ORP-BSN-99827384': { status: 'VIP Status', note: 'Michael De Santa, belangrijk persoon in de stad, geef altijd VIP service.' },
+      'ORP-BSN-11223344': { status: 'In Screening', note: 'Volgt momenteel achtergrond controle voor premium financiering.' },
+      'ORP-BSN-55667788': { status: 'Actief / Geautoriseerd', note: 'Wade, koopt veel tuners. Geen problemen geconstateerd.' },
+      'ORP-BSN-13374242': { status: 'VIP Status', note: 'Lester Crest, heeft zojuist een superjacht gekocht! Absolute prioriteit.' }
+    };
+  });
+
+  const updateCustomerStatusInStorage = (bsn: string, status: string, note: string) => {
+    const updated = { ...customerStatuses, [bsn]: { status, note } };
+    setCustomerStatuses(updated);
+    localStorage.setItem('veloce_customer_statuses', JSON.stringify(updated));
+  };
   const [saleError, setSaleError] = useState('');
   const [showDiscordModal, setShowDiscordModal] = useState(false);
   const [discordLoading, setDiscordLoading] = useState(false);
+  const [realDiscordUser, setRealDiscordUser] = useState<any>(null);
+
+  useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        return;
+      }
+
+      if (event.data?.type === 'OAUTH_AUTH_COMPLETED') {
+        setDiscordLoading(false);
+        const payload = event.data.payload;
+        if (!payload) return;
+
+        if (payload.status === 'error') {
+          if (payload.error === 'NOT_IN_GUILD') {
+            setLoginError(
+              `TOEGANG GEWEIGERD: Jouw Discord profiel (@${payload.user?.username || 'onbekend'}) is succesvol geverifieerd via OAuth2, maar je bent geen lid van de '${DISCORD_CONFIG.guildName}' Discord Server (ID: ${payload.guildId || DISCORD_CONFIG.guildId}).`
+            );
+          } else {
+            setLoginError(`Discord OAuth Fout: ${payload.error}`);
+          }
+          return;
+        }
+
+        if (payload.status === 'success') {
+          const user = payload.user;         
+          const userRoles = payload.roles || []; 
+          
+          const allowedRoleIds = DISCORD_CONFIG.requiredRoles.map(r => r.roleId);
+          const hasPermittedRole = userRoles.some((roleId: string) => allowedRoleIds.includes(roleId));
+
+          if (hasPermittedRole) {
+            setEmployeeCallSign(user.nickname || user.globalName || user.username);
+            setRealDiscordUser({
+              ...user,
+              avatarUrl: user.avatar 
+                ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+                : null
+            });
+            setIsEmployeeLoggedIn(true);
+            setLoginError('');
+          } else {
+            setLoginError(
+              `TOEGANG GEWEIGERD: Jouw Discord profiel (@${user.username}) bezit geen geautoriseerde rollen in de Discord-server.\n` +
+              `Vereist is ten minste één van de volgende rollen:\n` +
+              `${DISCORD_CONFIG.requiredRoles.map(r => `@${r.roleName} (ID: ${r.roleId})`).join(', ')}.\n\n` +
+              `Jouw profiel heeft de volgende rol-IDs: [${userRoles.length > 0 ? userRoles.join(', ') : 'GEEN ROLLEN'}].\n\n` +
+              `Tip: Als dit je eigen server is, pas dan deze rol-ID's aan in 'src/discordConfig.ts'!`
+            );
+          }
+        }
+      }
+    };
+
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, []);
+
+  const handleDiscordRealOAuth = async () => {
+    setLoginError('');
+    setDiscordLoading(true);
+    try {
+      const response = await fetch('/api/auth/discord/url');
+      if (!response.ok) {
+        throw new Error('Kan geen verbinding maken met de Express backend server.');
+      }
+      const data = await response.json();
+      
+      if (data.error === 'DISCORD_CLIENT_ID_MISSING' || !data.url) {
+        setDiscordLoading(false);
+        setShowDiscordModal(true);
+        return;
+      }
+
+      const authWindow = window.open(
+        data.url,
+        'discord_oauth',
+        'width=600,height=750'
+      );
+
+      if (!authWindow) {
+        setDiscordLoading(false);
+        setLoginError('Mislukt om verificatiescherm te openen. Staat je browser popups toe? Controleer de instellingen.');
+      }
+    } catch (err: any) {
+      setDiscordLoading(false);
+      setLoginError(err.message || 'Onbekende fout bij het laden van Discord OAuth url.');
+    }
+  };
   const [selectedDiscordUser, setSelectedDiscordUser] = useState('Luna Sterling');
+  const [loginMethod, setLoginMethod] = useState<'oauth' | 'bot_pincode'>('bot_pincode');
+  const [pinInput, setPinInput] = useState('');
+  const [generatedPins, setGeneratedPins] = useState<Record<string, string>>({
+    'Luna Sterling': '284915',
+    'Trevor Vance': '592831',
+    'Marco Vercetti': '847116',
+    'Enzo Ferrari': '371289',
+    'Dealership Admin': '904128'
+  });
+  const [pinGeneratedFor, setPinGeneratedFor] = useState<string>('');
+  const [pinTimer, setPinTimer] = useState<number>(300); // 5 minutes in seconds
+  const [botChatLogs, setBotChatLogs] = useState<Array<{ sender: string, text: string, time: string, isBot?: boolean, avatarColor?: string }>>([
+    { sender: 'Sovereign Bot', text: '🤖 Sovereign Discord Bot is opgestart en verbonden met gilde [ID: 109283748293749283].', time: '11:15', isBot: true, avatarColor: 'bg-[#5865F2]' },
+    { sender: 'Sovereign Bot', text: '💡 Medewerkers kunnen nu inlogcodes genereren met het `/login` slash-commando.', time: '11:15', isBot: true, avatarColor: 'bg-[#5865F2]' }
+  ]);
+  const [hasCopiedPin, setHasCopiedPin] = useState(false);
+  const [showRealBotCode, setShowRealBotCode] = useState(false);
+  const [selectedBotLang, setSelectedBotLang] = useState<'js' | 'py'>('js');
 
   // Shared reactive storage lists for local synchronization
   const [allBookings, setAllBookings] = useState<any[]>([]);
@@ -138,6 +278,18 @@ export default function App() {
   useEffect(() => {
     loadAllLocalStorageData();
   }, [activeTab, activeCatalogSubView]);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (pinTimer > 0) {
+      interval = setInterval(() => {
+        setPinTimer(t => t - 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [pinTimer]);
 
   const handleApproveDenyBooking = (id: string, newStatus: 'Approved' | 'Declined' | 'Pending') => {
     const updated = allBookings.map(b => b.id === id ? { ...b, status: newStatus } : b);
@@ -740,160 +892,162 @@ export default function App() {
             </div>
 
             {/* Showing Showroom catalog Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredVehicles.map((vehicle) => {
-                const liked = !!likes[vehicle.id];
-                return (
-                  <div
-                    key={vehicle.id}
-                    className={`border rounded-xl overflow-hidden flex flex-col justify-between transition-all duration-300 relative group shadow-md ${
-                      isDarkMode 
-                        ? 'bg-neutral-900 hover:bg-neutral-900/90 border-neutral-850 hover:border-neutral-750' 
-                        : 'bg-white hover:bg-neutral-50/80 border-neutral-200 hover:border-neutral-300'
-                    }`}
-                  >
-                    
-                    {/* Top action badge or category tag */}
-                    <div className="absolute top-3 left-3 flex gap-1.5 z-10">
-                      {vehicle.badge && (() => {
-                        const bColor = getBadgeColor(vehicle.badge, vehicle.badgeColor);
-                        return (
-                          <span 
-                            className="text-[9px] font-extrabold tracking-widest uppercase px-2 py-0.5 rounded backdrop-blur-md border"
-                            style={{ 
-                              backgroundColor: `${bColor}45`,
-                              borderColor: `${bColor}65`,
-                              color: bColor 
-                            }}
-                          >
-                            {vehicle.badge}
-                          </span>
-                        );
-                      })()}
-                      <span className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded backdrop-blur-xs font-mono transition-colors duration-300 ${
-                        isDarkMode ? 'bg-neutral-950/80 text-neutral-400' : 'bg-neutral-100/90 text-neutral-600 border border-neutral-200'
-                      }`}>
-                        {vehicle.category}
-                      </span>
-                    </div>
-
-                    {/* Like heart */}
-                    <button
-                      onClick={() => toggleLike(vehicle.id)}
-                      className={`absolute top-3 right-3 p-1.5 border hover:border-red-500/20 rounded-lg transition-all z-10 backdrop-blur-xs active:scale-90 ${
+            <div className="max-h-[720px] overflow-y-auto pr-1.5 scrollbar-thin">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredVehicles.map((vehicle) => {
+                  const liked = !!likes[vehicle.id];
+                  return (
+                    <div
+                      key={vehicle.id}
+                      className={`border rounded-xl overflow-hidden flex flex-col justify-between transition-all duration-300 relative group shadow-md ${
                         isDarkMode 
-                          ? 'bg-neutral-950/80 hover:bg-neutral-950 border-white/5 text-neutral-400 hover:text-red-500' 
-                          : 'bg-neutral-100/90 hover:bg-neutral-200 border-neutral-200 text-neutral-500 hover:text-red-500'
+                          ? 'bg-neutral-900 hover:bg-neutral-900/90 border-neutral-850 hover:border-neutral-750' 
+                          : 'bg-white hover:bg-neutral-50/80 border-neutral-200 hover:border-neutral-300'
                       }`}
                     >
-                      <Heart className={`w-3.5 h-3.5 ${liked ? 'fill-red-500 text-red-500' : ''}`} />
-                    </button>
-
-                    {/* Large illustrative display background card */}
-                    <div className={`h-44 relative overflow-hidden flex items-center justify-center border-b transition-colors duration-300 ${
-                      isDarkMode 
-                        ? 'bg-gradient-to-b from-neutral-950 to-neutral-900 border-neutral-850' 
-                        : 'bg-gradient-to-b from-neutral-100 to-neutral-50 border-neutral-200'
-                    }`}>
                       
-                      {/* Stylized background glow */}
-                      <div
-                        className="absolute w-28 h-28 rounded-full blur-2xl opacity-15 select-none bg-amber-500/20"
-                      ></div>
-
-                      {/* Cool Vector Supercar Outline Art or Real Image */}
-                      {vehicle.imageUrl && vehicle.imageUrl.startsWith('http') ? (
-                        <img 
-                          src={vehicle.imageUrl} 
-                          alt={vehicle.name}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-300"
-                        />
-                      ) : (
-                        <div className="p-4 flex items-center justify-center w-full h-full">
-                          <svg viewBox="0 0 100 50" className="w-full max-w-[140px] drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)] transform group-hover:scale-105 transition-transform duration-300">
-                            <defs>
-                              <linearGradient id={`grad-${vehicle.id}`} x1="0" y1="0" x2="1" y2="0">
-                                <stop offset="0%" stopColor="#ca8a04" />
-                                <stop offset="100%" stopColor={isDarkMode ? "#121212" : "#f1f5f9"} />
-                              </linearGradient>
-                            </defs>
-                            {/* Wheel Arch ground and body */}
-                            <path d="M 5 35 H 95" stroke={isDarkMode ? "#262626" : "#cbd5e1"} strokeWidth="2" />
-                            <path
-                              d="M 10 35 H 25 A 7 7 0 0 1 39 35 H 65 A 7 7 0 0 1 79 35 H 90 Q 94 35, 93 28 Q 91 22, 80 22 C 70 22, 60 17, 48 17 Q 35 17, 25 21 C 18 24, 15 28, 10 31 Z"
-                              fill="url(#grad-fallback)"
-                              stroke={isDarkMode ? "#404040" : "#94a3b8"}
-                              strokeWidth="0.8"
-                            />
-                            {/* Glass cabin details */}
-                            <path d="M 40 22 L 50 18 L 65 18 C 72 18, 70 22, 60 22 Z" fill={isDarkMode ? "#171717" : "#64748b"} fillOpacity="0.8" />
-                            {/* Wheels shadows */}
-                            <circle cx="32" cy="35" r="5" fill={isDarkMode ? "#09090b" : "#1e293b"} stroke={isDarkMode ? "#4b5563" : "#94a3b8"} strokeWidth="1" />
-                            <circle cx="72" cy="35" r="5" fill={isDarkMode ? "#09090b" : "#1e293b"} stroke={isDarkMode ? "#4b5563" : "#94a3b8"} strokeWidth="1" />
-                          </svg>
-                        </div>
-                      )}
-
-                      {/* Bottom stock / spawn trigger */}
-                      <div className="absolute bottom-2 left-3 text-[10px] font-mono z-10">
-                        {vehicle.stock === -1 ? (
-                          <span className="px-2 py-0.5 rounded font-bold text-red-500 border border-red-500/10 backdrop-blur-md bg-neutral-950/75 shadow-lg">
-                            GEEN VOORRAAD
-                          </span>
-                        ) : vehicle.stock === 0 ? (
-                          <span className="px-2 py-0.5 rounded font-bold text-amber-500 border border-amber-500/10 backdrop-blur-md bg-neutral-950/75 shadow-lg">
-                            HUIDIGE VOORRAAD VERKOCHT
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded font-bold text-emerald-500 border border-emerald-500/10 backdrop-blur-md bg-neutral-950/75 shadow-lg">
-                            HUIDIGE VOORRAAD: {vehicle.stock}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Catalogue description information */}
-                    <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
-                      <div>
-                        <div>
-                          <h3 className={`text-sm font-black uppercase tracking-wide truncate text-center w-full transition-colors duration-300 ${
-                            isDarkMode ? 'text-slate-100' : 'text-neutral-900'
-                          }`}>
-                            {vehicle.name}
-                          </h3>
-                        </div>
-
-                        {/* topsnelheid & passengers showing side-by-side */}
-                        <div className={`grid grid-cols-2 border-y py-2 my-3 text-center transition-colors duration-300 divide-x ${
-                          isDarkMode ? 'border-neutral-850 divide-neutral-800' : 'border-neutral-250 divide-neutral-200'
+                      {/* Top action badge or category tag */}
+                      <div className="absolute top-3 left-3 flex gap-1.5 z-10">
+                        {vehicle.badge && (() => {
+                          const bColor = getBadgeColor(vehicle.badge, vehicle.badgeColor);
+                          return (
+                            <span 
+                              className="text-[9px] font-extrabold tracking-widest uppercase px-2 py-0.5 rounded backdrop-blur-md border"
+                              style={{ 
+                                backgroundColor: `${bColor}45`,
+                                borderColor: `${bColor}65`,
+                                color: bColor 
+                              }}
+                            >
+                              {vehicle.badge}
+                            </span>
+                          );
+                        })()}
+                        <span className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded backdrop-blur-xs font-mono transition-colors duration-300 ${
+                          isDarkMode ? 'bg-neutral-950/80 text-neutral-400' : 'bg-neutral-100/90 text-neutral-600 border border-neutral-200'
                         }`}>
-                          <div>
-                            <span className="text-[9.5px] text-neutral-500 block font-mono uppercase">Topsnelheid</span>
-                            <span className={`text-xs font-black font-mono transition-colors duration-300 ${
-                              isDarkMode ? 'text-slate-200' : 'text-neutral-800'
-                            }`}>{vehicle.topSpeed} km/u</span>
-                          </div>
-                          <div>
-                            <span className="text-[9.5px] text-neutral-500 block font-mono uppercase">Passagiers</span>
-                            <span className={`text-xs font-black font-mono transition-colors duration-300 ${
-                              isDarkMode ? 'text-slate-200' : 'text-neutral-800'
-                            }`}>{vehicle.passengers !== undefined ? vehicle.passengers : 2}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* ONLY showing Price */}
-                      <div className="flex justify-between items-baseline pt-1">
-                        <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider font-mono">PRIJS:</span>
-                        <span className="text-sm font-black text-amber-500 font-mono">
-                          € {vehicle.price.toLocaleString()}
+                          {vehicle.category}
                         </span>
                       </div>
+
+                      {/* Like heart */}
+                      <button
+                        onClick={() => toggleLike(vehicle.id)}
+                        className={`absolute top-3 right-3 p-1.5 border hover:border-red-500/20 rounded-lg transition-all z-10 backdrop-blur-xs active:scale-90 ${
+                          isDarkMode 
+                            ? 'bg-neutral-950/80 hover:bg-neutral-950 border-white/5 text-neutral-400 hover:text-red-500' 
+                            : 'bg-neutral-100/90 hover:bg-neutral-200 border-neutral-200 text-neutral-500 hover:text-red-500'
+                        }`}
+                      >
+                        <Heart className={`w-3.5 h-3.5 ${liked ? 'fill-red-500 text-red-500' : ''}`} />
+                      </button>
+
+                      {/* Large illustrative display background card */}
+                      <div className={`h-44 relative overflow-hidden flex items-center justify-center border-b transition-colors duration-300 ${
+                        isDarkMode 
+                          ? 'bg-gradient-to-b from-neutral-950 to-neutral-900 border-neutral-850' 
+                          : 'bg-gradient-to-b from-neutral-100 to-neutral-50 border-neutral-200'
+                      }`}>
+                        
+                        {/* Stylized background glow */}
+                        <div
+                          className="absolute w-28 h-28 rounded-full blur-2xl opacity-15 select-none bg-amber-500/20"
+                        ></div>
+
+                        {/* Cool Vector Supercar Outline Art or Real Image */}
+                        {vehicle.imageUrl && vehicle.imageUrl.startsWith('http') ? (
+                          <img 
+                            src={vehicle.imageUrl} 
+                            alt={vehicle.name}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="p-4 flex items-center justify-center w-full h-full">
+                            <svg viewBox="0 0 100 50" className="w-full max-w-[140px] drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)] transform group-hover:scale-105 transition-transform duration-300">
+                              <defs>
+                                <linearGradient id={`grad-${vehicle.id}`} x1="0" y1="0" x2="1" y2="0">
+                                  <stop offset="0%" stopColor="#ca8a04" />
+                                  <stop offset="100%" stopColor={isDarkMode ? "#121212" : "#f1f5f9"} />
+                                </linearGradient>
+                              </defs>
+                              {/* Wheel Arch ground and body */}
+                              <path d="M 5 35 H 95" stroke={isDarkMode ? "#262626" : "#cbd5e1"} strokeWidth="2" />
+                              <path
+                                d="M 10 35 H 25 A 7 7 0 0 1 39 35 H 65 A 7 7 0 0 1 79 35 H 90 Q 94 35, 93 28 Q 91 22, 80 22 C 70 22, 60 17, 48 17 Q 35 17, 25 21 C 18 24, 15 28, 10 31 Z"
+                                fill="url(#grad-fallback)"
+                                stroke={isDarkMode ? "#404040" : "#94a3b8"}
+                                strokeWidth="0.8"
+                              />
+                              {/* Glass cabin details */}
+                              <path d="M 40 22 L 50 18 L 65 18 C 72 18, 70 22, 60 22 Z" fill={isDarkMode ? "#171717" : "#64748b"} fillOpacity="0.8" />
+                              {/* Wheels shadows */}
+                              <circle cx="32" cy="35" r="5" fill={isDarkMode ? "#09090b" : "#1e293b"} stroke={isDarkMode ? "#4b5563" : "#94a3b8"} strokeWidth="1" />
+                              <circle cx="72" cy="35" r="5" fill={isDarkMode ? "#09090b" : "#1e293b"} stroke={isDarkMode ? "#4b5563" : "#94a3b8"} strokeWidth="1" />
+                            </svg>
+                          </div>
+                        )}
+
+                        {/* Bottom stock / spawn trigger */}
+                        <div className="absolute bottom-2 left-3 text-[10px] font-mono z-10">
+                          {vehicle.stock === -1 ? (
+                            <span className="px-2 py-0.5 rounded font-bold text-red-500 border border-red-500/10 backdrop-blur-md bg-neutral-950/75 shadow-lg">
+                              GEEN VOORRAAD
+                            </span>
+                          ) : vehicle.stock === 0 ? (
+                            <span className="px-2 py-0.5 rounded font-bold text-amber-500 border border-amber-500/10 backdrop-blur-md bg-neutral-950/75 shadow-lg">
+                              HUIDIGE VOORRAAD VERKOCHT
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded font-bold text-emerald-500 border border-emerald-500/10 backdrop-blur-md bg-neutral-950/75 shadow-lg">
+                              HUIDIGE VOORRAAD: {vehicle.stock}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Catalogue description information */}
+                      <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                        <div>
+                          <div>
+                            <h3 className={`text-sm font-black uppercase tracking-wide truncate text-center w-full transition-colors duration-300 ${
+                              isDarkMode ? 'text-slate-100' : 'text-neutral-900'
+                            }`}>
+                              {vehicle.name}
+                            </h3>
+                          </div>
+
+                          {/* topsnelheid & passengers showing side-by-side */}
+                          <div className={`grid grid-cols-2 border-y py-2 my-3 text-center transition-colors duration-300 divide-x ${
+                            isDarkMode ? 'border-neutral-850 divide-neutral-800' : 'border-neutral-250 divide-neutral-200'
+                          }`}>
+                            <div>
+                              <span className="text-[9.5px] text-neutral-500 block font-mono uppercase">Topsnelheid</span>
+                              <span className={`text-xs font-black font-mono transition-colors duration-300 ${
+                                isDarkMode ? 'text-slate-200' : 'text-neutral-800'
+                              }`}>{vehicle.topSpeed} km/u</span>
+                            </div>
+                            <div>
+                              <span className="text-[9.5px] text-neutral-500 block font-mono uppercase">Passagiers</span>
+                              <span className={`text-xs font-black font-mono transition-colors duration-300 ${
+                                isDarkMode ? 'text-slate-200' : 'text-neutral-800'
+                              }`}>{vehicle.passengers !== undefined ? vehicle.passengers : 2}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ONLY showing Price */}
+                        <div className="flex justify-between items-baseline pt-1">
+                          <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider font-mono">PRIJS:</span>
+                          <span className="text-sm font-black text-amber-500 font-mono">
+                            € {vehicle.price.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
 
             {/* Zero state matches */}
@@ -921,66 +1075,275 @@ export default function App() {
         {activeTab === 'employee' && (
           <div className="max-w-6xl mx-auto text-left animate-fadeIn">
             {!isEmployeeLoggedIn ? (
-              /* Decrypted Terminal Login Flow - Simulated Discord sign-in */
-              <div className={`max-w-md mx-auto border rounded-2xl shadow-2xl p-6 relative overflow-hidden transition-all duration-300 ${
-                isDarkMode 
-                  ? 'bg-neutral-900 border-neutral-800 bg-gradient-to-b from-neutral-950 to-neutral-900 shadow-black' 
-                  : 'bg-white border-neutral-200 bg-gradient-to-b from-white to-neutral-50 shadow-gray-200'
-              }`}>
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#5865F2] to-amber-500 shadow-[0_4px_12px_rgba(88,101,242,0.3)]"></div>
-                
-                <div className="text-center space-y-3.5 mb-6">
-                  <div className={`mx-auto w-12 h-12 rounded-xl border flex items-center justify-center transition-colors duration-300 ${
-                    isDarkMode ? 'bg-neutral-950 border-neutral-850' : 'bg-neutral-50 border-neutral-200'
-                  }`}>
-                    {/* Simulated Discord Icon using SVG */}
-                    <svg className="w-6 h-6 text-[#5865F2]" fill="currentColor" viewBox="0 0 127.14 96.36">
+              <div className="space-y-8 animate-fadeIn">
+                {/* Header Section */}
+                <div className="text-center max-w-2xl mx-auto space-y-2">
+                  <div className={`inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border text-xs font-mono tracking-wider uppercase ${isDarkMode ? 'bg-[#5865F2]/10 border-[#5865F2]/20 text-[#5865F2]' : 'bg-[#5865F2]/5 border-[#5865F2]/10 text-[#5865F2]'}`}>
+                    <svg className="w-4.5 h-4.5 animate-pulse" fill="currentColor" viewBox="0 0 127.14 96.36">
                       <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53a105.73,105.73,0,0,0,32,16.29,81.84,81.84,0,0,0,6.71-11,68.6,68.6,0,0,1-10.64-5.12c.91-.67,1.81-1.37,2.65-2.1a75.22,75.22,0,0,0,73.8,0c.84.73,1.74,1.43,2.65,2.1a68.86,68.86,0,0,1-10.64,5.12,81.84,81.84,0,0,0,6.72,11,105.73,105.73,0,0,0,32-16.29C129.24,48.51,123.29,25.79,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.9,46,53.9,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.14,46,96.14,53,91,65.69,84.69,65.69Z" />
                     </svg>
+                    <span>Discord Integratie Portaal</span>
                   </div>
-                  <div>
-                    <h2 className={`text-lg font-extrabold uppercase tracking-widest transition-colors duration-300 ${
-                      isDarkMode ? 'text-slate-100' : 'text-neutral-900'
-                    }`}>Medewerker Loginportaal</h2>
-                    <p className={`text-[10px] font-mono tracking-wide mt-1 transition-colors duration-300 ${
-                      isDarkMode ? 'text-neutral-400' : 'text-neutral-500'
-                    }`}>
-                      Sovereign BEVEILIGING • LOG IN VIA DISCORD COMMUNICATIEBAND
-                    </p>
+                  <h2 className={`text-2xl font-black uppercase tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
+                    Sovereign Beveiligd Medewerkersportaal
+                  </h2>
+                  <p className={`text-xs max-w-lg mx-auto ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>
+                    Log in met je geautoriseerde Discord account. We ondersteunen nu inloggen via een dynamische <span className="font-bold underline text-[#5865F2]">Discord Bot pincode</span> (aanbevolen) of via de standaard web OAuth2 pop-up.
+                  </p>
+                </div>
+
+                {/* Centered Login Card */}
+                <div className="max-w-md mx-auto">
+                  <div className={`border rounded-2xl shadow-xl overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-neutral-900 border-neutral-850 shadow-black' : 'bg-white border-neutral-200'}`}>
+                    {/* Top Accent Strip */}
+                    <div className="h-1 bg-gradient-to-r from-[#5865F2] to-amber-500"></div>
+                    
+                    <div className="p-6 space-y-5">
+                      <div className="text-center space-y-2">
+                        <div className="w-12 h-12 rounded-full bg-[#5865F2]/10 text-[#5865F2] flex items-center justify-center mx-auto mb-2">
+                          <svg className="w-6.5 h-6.5 animate-pulse" fill="currentColor" viewBox="0 0 127.14 96.36">
+                            <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53a105.73,105.73,0,0,0,32,16.29,81.84,81.84,0,0,0,6.71-11,68.6,68.6,0,0,1-10.64-5.12c.91-.67,1.81-1.37,2.65-2.1a75.22,75.22,0,0,0,73.8,0c.84.73,1.74,1.43,2.65,2.1a68.86,68.86,0,0,1-10.64,5.12,81.84,81.84,0,0,0,6.72,11,105.73,105.73,0,0,0,32-16.29C129.24,48.51,123.29,25.79,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.9,46,53.9,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.14,46,96.14,53,91,65.69,84.69,65.69Z" />
+                          </svg>
+                        </div>
+                        <h3 className={`text-md font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
+                          Medewerker Authenticatie
+                        </h3>
+                        <p className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'} leading-relaxed`}>
+                          Gebruik de onderstaande knop om je veilig aan te melden via de Sovereign Discord OAuth2 gateway. Je rollen en machtigingen worden automatisch gecontroleerd.
+                        </p>
+                      </div>
+
+                      {loginError && (
+                        <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-550 dark:text-red-400 text-xs font-mono leading-relaxed relative">
+                          <span className="font-bold block mb-1">Authenticatiefout:</span>
+                          {loginError}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleDiscordRealOAuth}
+                        disabled={discordLoading}
+                        className="w-full py-3 bg-[#5865F2] hover:bg-[#4752c4] disabled:bg-[#5865F2]/50 text-white font-black rounded-lg text-xs uppercase tracking-wider transition-all shadow-[0_4px_12px_rgba(88,101,242,0.25)] hover:shadow-[0_6px_20px_rgba(88,101,242,0.4)] cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        {discordLoading ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin"></span>
+                            Verbinding Maken...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 127.14 96.36">
+                              <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53a105.73,105.73,0,0,0,32,16.29,81.84,81.84,0,0,0,6.71-11,68.6,68.6,0,0,1-10.64-5.12c.91-.67,1.81-1.37,2.65-2.1a75.22,75.22,0,0,0,73.8,0c.84.73,1.74,1.43,2.65,2.1a68.86,68.86,0,0,1-10.64,5.12,81.84,81.84,0,0,0,6.72,11,105.73,105.73,0,0,0,32-16.29C129.24,48.51,123.29,25.79,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.9,46,53.9,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.14,46,96.14,53,91,65.69,84.69,65.69Z" />
+                            </svg>
+                            Inloggen met Discord
+                          </>
+                        )}
+                      </button>
+
+                      <div className="bg-blue-500/5 text-blue-600 dark:text-blue-400 border border-blue-500/10 p-3.5 rounded-lg text-[11px] leading-relaxed">
+                        ℹ️ <strong>Test/Demo Mode:</strong> Omdat er in de AI Studio preview standaard geen Discord-omgevingsvariabelen ingesteld zijn, opent de knop een interactieve nabootsing van het OAuth-scherm. Hier kun je een selectie maken van de geautoriseerde medewerker-accounts om de functionaliteit volledig te testen.
+                      </div>
+                    </div>
+
+                    {/* Footer Info */}
+                    <div className={`p-4 border-t text-center font-mono ${isDarkMode ? 'border-neutral-850 bg-neutral-950/40' : 'border-neutral-150 bg-neutral-50/50'}`}>
+                      <p className={`text-[8.5px] uppercase tracking-wider leading-relaxed ${isDarkMode ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                        ⚠️ PROPRIETARY SECURE GATEWAY PORTAL • ONGEAUTORISEERDE TOEGANG WORDT OVERGEDAAN AAN DE FIVEM POLITIE
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  {loginError && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-md text-red-500 text-[11px] font-mono leading-relaxed">
-                      ❌ {loginError}
+                {/* Developer Hub: Real Discord Bot script configuration */}
+                <div className={`mt-6 border rounded-xl overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-neutral-900 border-neutral-850' : 'bg-neutral-50 border-neutral-250 shadow-sm'}`}>
+                  <button
+                    onClick={() => setShowRealBotCode(!showRealBotCode)}
+                    className="w-full p-4 flex items-center justify-between text-left outline-none cursor-pointer hover:bg-neutral-500/5 transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-[#5865F2]/10 text-[#5865F2] flex items-center justify-center">
+                        <Terminal className="w-5 h-5 animate-pulse" />
+                      </div>
+                      <div>
+                        <h4 className={`text-xs font-black uppercase tracking-wider font-sans ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
+                          📟 Handleiding & Echte Discord Bot Code (Klik om te openen)
+                        </h4>
+                        <p className={`text-[10px] mt-0.5 transition-colors duration-300 ${isDarkMode ? 'text-neutral-500' : 'text-neutral-600'}`}>
+                          Kopieer de nodeJS of Python script om inlogcodes live op je eigen Discord server te genereren.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-extrabold font-sans uppercase tracking-widest px-2.5 py-1 rounded select-none">
+                      {showRealBotCode ? 'SLUITEN ▲' : 'BEKIJK CODE ▼'}
+                    </span>
+                  </button>
+
+                  {showRealBotCode && (
+                    <div className="border-t border-neutral-250 dark:border-neutral-800 p-5 space-y-4 animate-slideDown select-text">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs font-sans leading-relaxed">
+                        <div className={`p-4 rounded-xl space-y-3 ${isDarkMode ? 'bg-neutral-950/50' : 'bg-neutral-100/50'}`}>
+                          <h5 className="font-extrabold uppercase tracking-widest text-[#5865F2] text-[10.5px]">⚙️ Stap 1: Discord Developer Portal</h5>
+                          <ol className="list-decimal list-inside space-y-1.5 text-neutral-500 dark:text-neutral-400 font-medium">
+                            <li>Ga naar de <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer" className="text-[#5865F2] underline hover:text-[#4752c4] font-bold">Discord Developer Portal</a>.</li>
+                            <li>Klik op <strong>New Application</strong>, geef het een naam en ga naar de <strong>Bot</strong> sectie.</li>
+                            <li>Zet de **Guild Members Intent** en **Message Content Intent** aan.</li>
+                            <li>Klik op <strong>Reset Token</strong> en kopieer deze (Token in code plakken).</li>
+                            <li>Gebruik de <strong>OAuth2 URL Generator</strong> en nodig de bot uit met <code className="bg-neutral-200 dark:bg-neutral-800 px-1 py-0.5 rounded inline font-mono">bot</code> en <code className="bg-neutral-200 dark:bg-neutral-800 px-1 py-0.5 rounded inline font-mono">applications.commands</code> scopes.</li>
+                          </ol>
+                        </div>
+                        <div className={`p-4 rounded-xl space-y-3 ${isDarkMode ? 'bg-neutral-950/50' : 'bg-neutral-100/50'}`}>
+                          <h5 className="font-extrabold uppercase tracking-widest text-amber-500 text-[10.5px]">🖥️ Stap 2: Web Server Integratie</h5>
+                          <p className="text-neutral-500 dark:text-neutral-400 font-medium font-sans">
+                            Om de inlogcodes realtime te verifiëren met je eigen panel, stelt de Discord Bot via een HTTP POST-verzoek een actieve code in voor het Discord ID van de medewerker op het panel.
+                          </p>
+                          <div className="p-2.5 rounded bg-amber-500/5 text-amber-600 dark:text-amber-500 border border-amber-500/10 text-[10.5px] font-mono leading-relaxed">
+                            Voor live productie op Render hoef je enkel <code className="text-[#e2e3e5] font-semibold dark:bg-neutral-950 bg-neutral-800 px-1 py-0.5 rounded">http://your-app.render.com/api/discord/store-pin</code> te registreren in je Node.js backend om de medewerker te autoriseren!
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between border-b border-neutral-250 dark:border-neutral-800 pb-2">
+                          <label className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#5865F2]' : 'text-neutral-500'}`}>
+                            Stap 3: Discord Bot Script Code
+                          </label>
+                          <div className="flex gap-1.5 p-0.5 bg-neutral-200 dark:bg-neutral-800 rounded">
+                            <button
+                              onClick={() => setSelectedBotLang('js')}
+                              className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded ${selectedBotLang === 'js' ? 'bg-[#5865F2] text-white shadow' : 'text-neutral-400 hover:text-white cursor-pointer'}`}
+                            >
+                              node.js (Discord.js v14)
+                            </button>
+                            <button
+                              onClick={() => setSelectedBotLang('py')}
+                              className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded ${selectedBotLang === 'py' ? 'bg-amber-500 text-neutral-950 shadow' : 'text-neutral-400 hover:text-white cursor-pointer'}`}
+                            >
+                              python (discord.py)
+                            </button>
+                          </div>
+                        </div>
+
+                        {selectedBotLang === 'js' ? (
+                          <pre className={`p-4 rounded-lg overflow-x-auto text-[10.5px] font-mono leading-relaxed max-h-[300px] text-emerald-400 ${isDarkMode ? 'bg-black text-emerald-400' : 'bg-neutral-900 text-emerald-400'}`}>
+{`// === SOVEREIGN DISCORD LOGIN BOT (node.js) ===
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const axios = require('axios');
+
+const TOKEN = 'YOUR_DISCORD_BOT_TOKEN_HERE';
+const CLIENT_ID = 'YOUR_BOT_CLIENT_ID';
+const SOVEREIGN_URL = 'https://your-showroom-panel.render.com'; // Jouw Render URL
+
+const client = new Client({ 
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] 
+});
+
+// Registreer /login slash commando
+const commands = [
+  new SlashCommandBuilder()
+    .setName('login')
+    .setDescription('Genereer een medewerker inlogcode voor de showroom catalogus')
+].map(command => command.toJSON());
+
+const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+(async () => {
+  try {
+    console.log('Activeren van slash-commando\\\'s...');
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+    console.log('Slash-commando\\\'s succesvol geactiveerd!');
+  } catch (error) {
+    console.error(error);
+  }
+})();
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'login') {
+    // Genereer veilige code
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const userRoles = interaction.member.roles.cache.map(r => r.id);
+
+    try {
+      // Stuur de pincode en rollen veilig naar het Sovereign Paneel
+      await axios.post(SOVEREIGN_URL + '/api/discord/store-pin', {
+        discordId: interaction.user.id,
+        username: interaction.user.tag,
+        nickname: interaction.member.displayName,
+        pin: pin,
+        roles: userRoles
+      });
+
+      await interaction.reply({
+        content: '🔑 **Sovereign Inlogcode Gegenereerd!**\\nJouw unieke pincode is: **' + pin + '**\\n\\nVul deze code in op het Sovereign Medewerkersportaal. De code verloopt over 5 minuten.',
+        ephemeral: true // Enkel zichtbaar voor de medewerker
+      });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({
+        content: '❌ Fout bij verbinden met Sovereign database: ' + err.message + '\\nControleer of jouw web server up-and-running is op Render!',
+        ephemeral: true
+      });
+    }
+  }
+});
+
+client.login(TOKEN);`}
+                          </pre>
+                        ) : (
+                          <pre className={`p-4 rounded-lg overflow-x-auto text-[10.5px] font-mono leading-relaxed max-h-[300px] text-amber-500 bg-neutral-900 ${isDarkMode ? 'bg-black text-amber-500' : 'bg-neutral-900 text-amber-500'}`}>
+{`# === SOVEREIGN DISCORD LOGIN BOT (python) ===
+import discord
+from discord import app_commands
+import random
+import requests
+
+TOKEN = "YOUR_DISCORD_BOT_TOKEN_HERE"
+SOVEREIGN_URL = "https://your-showroom-panel.render.com" # Jouw Render URL
+
+class SovereignBot(discord.Client):
+    def __init__(self):
+        super().__init__(is_bot=True)
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        await self.tree.sync()
+        print("Slash synchronisatie succesvol!")
+
+bot = SovereignBot()
+
+@bot.tree.command(name="login", description="Genereer een tijdelijke inlogcode voor Sovereign")
+async def login(interaction: discord.Interaction):
+    # Genereer 6 cijferige pin
+    pin = str(random.randint(100000, 999999))
+    roles = [str(role.id) for role in interaction.user.roles]
+
+    try:
+        # Verstuur naar website
+        res = requests.post(SOVEREIGN_URL + "/api/discord/store-pin", json={
+            "discordId": str(interaction.user.id),
+            "username": interaction.user.name,
+            "nickname": interaction.user.display_name,
+            "pin": pin,
+            "roles": roles
+        })
+        
+        await interaction.response.send_message(
+            content="🔑 **Sovereign Inlogcode Gegenereerd!**\\nJouw inlogcode is: " + pin + "\\n\\nGebruik deze code binnen 5 minuten op het Sovereign Paneel.",
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(
+            content="❌ Fout bij verbinden met Sovereign Paneel: " + str(e),
+            ephemeral=True
+        )
+
+bot.run(TOKEN)`}
+                          </pre>
+                        )}
+                      </div>
                     </div>
                   )}
-
-
-
-                  <button
-                    onClick={() => {
-                      setLoginError(null);
-                      setShowDiscordModal(true);
-                    }}
-                    className="w-full py-2.5 bg-[#5865F2] hover:bg-[#4752c4] text-white font-black rounded-lg text-xs uppercase tracking-wider transition-all shadow-[0_4px_12px_rgba(88,101,242,0.25)] cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 127.14 96.36">
-                      <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53a105.73,105.73,0,0,0,32,16.29,81.84,81.84,0,0,0,6.71-11,68.6,68.6,0,0,1-10.64-5.12c.91-.67,1.81-1.37,2.65-2.1a75.22,75.22,0,0,0,73.8,0c.84.73,1.74,1.43,2.65,2.1a68.86,68.86,0,0,1-10.64,5.12,81.84,81.84,0,0,0,6.72,11,105.73,105.73,0,0,0,32-16.29C129.24,48.51,123.29,25.79,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.9,46,53.9,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.14,46,96.14,53,91,65.69,84.69,65.69Z" />
-                    </svg>
-                    Inloggen met Discord
-                  </button>
-                </div>
-
-                <div className={`border-t mt-5 pt-3.5 text-center transition-colors duration-300 ${
-                  isDarkMode ? 'border-neutral-850' : 'border-neutral-200'
-                }`}>
-                  <p className={`text-[9px] font-mono uppercase tracking-widest transition-colors duration-300 ${
-                    isDarkMode ? 'text-neutral-600' : 'text-neutral-400'
-                  }`}>
-                    ⚠️ PROPRIETARY SOVEREIGN SYSTEMS • ONGEAUTORISEERDE TOEGANG IS STRENG VERBODEN
-                  </p>
                 </div>
 
                 {/* Simulated Discord OAuth Pop-up Modal */}
@@ -1006,6 +1369,26 @@ export default function App() {
                         </p>
 
                         <div className="space-y-2.5 border-t border-b border-[#35363c] py-3.5 text-[11px] text-[#b5bac1]">
+                          <div className="mb-4">
+                            <label className="text-[10px] font-black text-[#949ba4] tracking-wider uppercase block mb-1">
+                              KIES ACCOUNT OM TE SIMULEREN
+                            </label>
+                            <select
+                              value={selectedDiscordUser}
+                              onChange={(e) => {
+                                setSelectedDiscordUser(e.target.value);
+                                setLoginError(null);
+                              }}
+                              className="w-full text-xs font-semibold rounded-lg px-3 py-2 bg-[#1e1f22] border border-[#232428] text-white outline-none focus:border-[#5865F2] transition-colors"
+                            >
+                              <option value="Luna Sterling">Luna Sterling (Staff & Management)</option>
+                              <option value="Trevor Vance">Trevor Vance (Staff / Monteur)</option>
+                              <option value="Marco Vercetti">Marco Vercetti (Staff & Directie)</option>
+                              <option value="Enzo Ferrari">Enzo Ferrari (Smarte Verkoper)</option>
+                              <option value="Dealership Admin">Executive Dealer Directeur (Directie)</option>
+                            </select>
+                          </div>
+
                           <div className="flex items-start gap-2">
                             <span className="text-[#23a55a] font-black text-xs">✓</span>
                             <div>
@@ -1095,6 +1478,64 @@ export default function App() {
             ) : (
               /* Decrypted Veloce Executive Station Control Console */
               <div className="space-y-6">
+
+                {/* Employee Welcome & Control Center Status Bar */}
+                <div className={`p-4 rounded-xl border flex flex-col md:flex-row items-center justify-between gap-4 ${
+                  isDarkMode ? 'bg-neutral-900 border-neutral-800 animate-fadeIn' : 'bg-white border-neutral-200 shadow-sm animate-fadeIn'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {realDiscordUser && realDiscordUser.avatarUrl ? (
+                      <img 
+                        src={realDiscordUser.avatarUrl} 
+                        alt="Discord Avatar" 
+                        className="w-10 h-10 rounded-full border-2 border-[#5865F2] shadow-sm"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 font-black text-neutral-950 flex items-center justify-center font-mono">
+                        {employeeCallSign.split(' ').map((x: string) => x[0]).join('')}
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[12px] font-black uppercase tracking-wider ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
+                          {employeeCallSign}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
+                          realDiscordUser 
+                            ? 'bg-emerald-500/10 text-emerald-450 border-emerald-500/20' 
+                            : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                        }`}>
+                          {realDiscordUser ? 'Echte Discord Geverifieerd' : 'Geautoriseerde Medewerker'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-neutral-400 font-mono">
+                        {realDiscordUser 
+                          ? `Gekoppeld Discord ID: ${realDiscordUser.id} | Server: ${DISCORD_CONFIG.guildName}` 
+                          : `Sovereign RP Showroom Systeem • Handmatige Verificatie`
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 w-full md:w-auto">
+                    <button
+                      onClick={() => {
+                        setIsEmployeeLoggedIn(false);
+                        setRealDiscordUser(null);
+                        setPinInput('');
+                        setLoginError('');
+                      }}
+                      className={`w-full md:w-auto px-4 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                        isDarkMode 
+                          ? 'border-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-800' 
+                          : 'border-neutral-200 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100'
+                      }`}
+                    >
+                      Uitloggen Portal
+                    </button>
+                  </div>
+                </div>
                 
                 {/* Sub components inside Admin Roster Layout */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1383,14 +1824,15 @@ export default function App() {
                       </div>
 
                       {/* VECHICLE LIST GRID WITH REAL-TIME ACTION RIGGING */}
-                      <div className="grid grid-cols-1 gap-4">
-                        {vehiclesList
-                          .filter(v => v.name.toLowerCase().includes(stockSearch.toLowerCase()))
-                          .map((vehicle) => (
-                            <div
-                              key={vehicle.id}
-                              className="p-4 bg-neutral-950/20 border border-neutral-850 hover:border-neutral-750 rounded-xl transition-all flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 select-none"
-                            >
+                      <div className="max-h-[600px] overflow-y-auto pr-1.5 scrollbar-thin">
+                        <div className="grid grid-cols-1 gap-4">
+                          {vehiclesList
+                            .filter(v => v.name.toLowerCase().includes(stockSearch.toLowerCase()))
+                            .map((vehicle) => (
+                              <div
+                                key={vehicle.id}
+                                className="p-4 bg-neutral-950/20 border border-neutral-850 hover:border-neutral-750 rounded-xl transition-all flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 select-none"
+                              >
                               {/* Left specs preview layout */}
                               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 text-left">
                                 <div
@@ -1513,6 +1955,7 @@ export default function App() {
                               </div>
                             </div>
                           ))}
+                        </div>
                       </div>
 
                       {/* EDIT VEHICLE POP-UP MODAL OVERLAY */}
@@ -1883,7 +2326,7 @@ export default function App() {
                               return (
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                   {/* Left list panel */}
-                                  <div className="lg:col-span-1 space-y-2 max-h-[450px] overflow-y-auto pr-1">
+                                  <div className="lg:col-span-1 space-y-2 max-h-[450px] overflow-y-auto pr-1 scrollbar-thin">
                                     <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-2">Geregistreerde Leden ({filteredCustomers.length})</div>
                                     {filteredCustomers.map(c => {
                                       const isSelected = selectedCustomerBsn === c.bsnNumber;
@@ -1905,6 +2348,19 @@ export default function App() {
                                           
                                           {/* Mini status indicators */}
                                           <div className="flex flex-wrap gap-1 mt-1.5">
+                                            {customerStatuses[c.bsnNumber] && (
+                                              <span className={`px-1 py-0.2 rounded text-[7.5px] font-extrabold uppercase tracking-wider border ${
+                                                customerStatuses[c.bsnNumber].status === 'Actief / Geautoriseerd'
+                                                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                                  : customerStatuses[c.bsnNumber].status === 'VIP Status'
+                                                    ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 shadow-sm'
+                                                    : customerStatuses[c.bsnNumber].status === 'In Screening'
+                                                      ? 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20'
+                                                      : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                                              }`}>
+                                                🛡️ {customerStatuses[c.bsnNumber].status.split(' ')[0]}
+                                              </span>
+                                            )}
                                             {c.totalSpent > 15000000 && (
                                               <span className="px-1 py-0.2 rounded text-[7.5px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-500 border border-amber-500/20">
                                                 ★ VIP
@@ -2003,6 +2459,85 @@ export default function App() {
                                             </div>
                                           </div>
 
+                                          {/* Interactive Sovereign CRM Client Status */}
+                                          <div className={`p-4 border rounded-xl space-y-4 text-left ${
+                                            isDarkMode ? 'bg-neutral-900 border-neutral-800' : 'bg-neutral-50 border-neutral-250 shadow-xs'
+                                          }`}>
+                                            <div className="flex items-center justify-between border-b pb-2 border-neutral-800/10 dark:border-neutral-850">
+                                              <div className="flex items-center gap-2">
+                                                <ShieldCheck className="w-4 h-4 text-amber-500 animate-pulse" />
+                                                <span className={`text-[11px] font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
+                                                  CRM KLANTENSTATUS BEHEER
+                                                </span>
+                                              </div>
+                                              <span className="text-[8px] font-mono bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-black uppercase tracking-widest border border-amber-500/20">
+                                                Sovereign CRM System
+                                              </span>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                  <label className="text-[8.5px] font-extrabold uppercase tracking-wider text-neutral-400 block font-mono mb-1.5">
+                                                    Klantstatus Aanpassen
+                                                  </label>
+                                                  <select
+                                                    value={customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd'}
+                                                    onChange={(e) => {
+                                                      const currentNote = customerStatuses[activeCustomer.bsnNumber]?.note || '';
+                                                      updateCustomerStatusInStorage(activeCustomer.bsnNumber, e.target.value, currentNote);
+                                                    }}
+                                                    className={`w-full text-xs font-semibold rounded px-2.5 py-1.5 focus:border-amber-500 outline-none border transition-colors cursor-pointer ${
+                                                      isDarkMode ? 'bg-[#0f0f11] border-neutral-800 text-slate-200' : 'bg-white border-neutral-300 text-neutral-800'
+                                                    }`}
+                                                  >
+                                                    <option value="Actief / Geautoriseerd">Actief / Geautoriseerd ✔</option>
+                                                    <option value="VIP Status">VIP Status ★</option>
+                                                    <option value="In Screening">In Screening ⚡</option>
+                                                    <option value="Blokkade / Wanbetaler">Blokkade / Wanbetaler ❌</option>
+                                                  </select>
+                                                </div>
+
+                                                <div>
+                                                  <label className="text-[8.5px] font-extrabold uppercase tracking-wider text-neutral-400 block font-mono mb-1.5">
+                                                    Actuele Status Indicator
+                                                  </label>
+                                                  <div className="flex items-center h-8">
+                                                    <span className={`px-3 py-1 rounded font-black uppercase tracking-wider text-[9px] border flex items-center gap-1.5 ${
+                                                      (customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd') === 'Actief / Geautoriseerd'
+                                                        ? 'bg-emerald-500/10 text-emerald-450 border-emerald-500/20'
+                                                        : (customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd') === 'VIP Status'
+                                                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                                          : (customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd') === 'In Screening'
+                                                            ? 'bg-cyan-500/10 text-cyan-450 border-cyan-500/20'
+                                                            : 'bg-rose-500/10 text-rose-450 border-rose-500/20'
+                                                    }`}>
+                                                      <span className="w-1.5 h-1.5 rounded-full animate-ping bg-current"></span>
+                                                      {customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd'}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </div>
+
+                                              <div>
+                                                <label className="text-[8.5px] font-extrabold uppercase tracking-wider text-neutral-400 block font-mono mb-1.5">
+                                                  Interne CRM Memo / Aantekening
+                                                </label>
+                                                <textarea
+                                                  value={customerStatuses[activeCustomer.bsnNumber]?.note || ''}
+                                                  placeholder="Typ hier aantekeningen over de betaalkracht, gedrag of achtergrond van de klant..."
+                                                  onChange={(e) => {
+                                                    const currentStatus = customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd';
+                                                    updateCustomerStatusInStorage(activeCustomer.bsnNumber, currentStatus, e.target.value);
+                                                  }}
+                                                  className={`w-full text-xs rounded p-2.5 outline-none border transition-colors h-16 resize-none font-sans ${
+                                                    isDarkMode ? 'bg-[#0f0f11] border-neutral-800 text-slate-200 focus:border-amber-500' : 'bg-white border-neutral-300 text-neutral-800 focus:border-amber-500'
+                                                  }`}
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+
                                           {/* List of models bought */}
                                           <div className={`p-3.5 border rounded-lg space-y-1.5 ${isDarkMode ? 'bg-neutral-900 border-neutral-800' : 'bg-neutral-50 border-neutral-250 shadow-xs'}`}>
                                             <span className="text-[9px] font-mono text-neutral-400 uppercase block font-mono">Geregistreerde Wagenpark Modellen</span>
@@ -2022,7 +2557,7 @@ export default function App() {
                                           <div className={`p-4 border rounded-lg space-y-3 ${isDarkMode ? 'bg-neutral-900 border-neutral-800' : 'bg-neutral-50 border-neutral-250 shadow-xs'}`}>
                                             <h5 className={`text-xs font-black uppercase font-sans tracking-wide ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>Aankoopgeschiedenis & Facturen</h5>
                                             
-                                            <div className="overflow-x-auto">
+                                            <div className="overflow-x-auto max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
                                               <table className="w-full text-left border-collapse text-[10.5px]">
                                                 <thead>
                                                   <tr className={`border-b text-[9px] font-mono uppercase ${isDarkMode ? 'border-neutral-800 text-neutral-500' : 'border-neutral-200 text-neutral-500'}`}>
@@ -2371,8 +2906,9 @@ export default function App() {
                       </div>
 
                       {/* Display grid table rows */}
-                      <div className="space-y-2.5">
-                        {(() => {
+                      <div className="max-h-[600px] overflow-y-auto pr-1.5 scrollbar-thin">
+                        <div className="space-y-2.5">
+                          {(() => {
                           let filteredSales = [...salesList];
                           if (salesSearch.trim()) {
                             const q = salesSearch.toLowerCase();
@@ -2533,6 +3069,7 @@ export default function App() {
                           );
                         });
                         })()}
+                        </div>
                       </div>
                       </>
                     )}
@@ -2792,7 +3329,7 @@ export default function App() {
                                   <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block font-mono">
                                     Medewerker Selecteren
                                   </label>
-                                  <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                                  <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
                                     {STAFF.map(st => {
                                       const isSelected = selectedCalcEmployee === st.name;
                                       return (
@@ -2922,7 +3459,7 @@ export default function App() {
                                         {breakdowns.length === 0 ? (
                                           <p className="text-xs text-neutral-500 italic py-4 font-mono text-center">Er zijn geen verkopen geregistreerd voor deze medewerker in de geselecteerde periode.</p>
                                         ) : (
-                                          <div className="overflow-x-auto">
+                                          <div className="overflow-x-auto max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
                                             <table className="w-full text-left border-collapse text-[10px]">
                                               <thead>
                                                 <tr className="border-b border-neutral-850/5 dark:border-neutral-850 text-[9px] font-mono uppercase text-neutral-500">
@@ -3002,7 +3539,7 @@ export default function App() {
                               {salesLastTwoWeeks.length === 0 ? (
                                 <p className="text-[11px] text-neutral-500 italic py-2 font-mono">Er zijn geen verkopen geregistreerd in de afgelopen 14 dagen.</p>
                               ) : (
-                                <div className="overflow-x-auto font-sans">
+                                <div className="overflow-x-auto font-sans max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
                                   <table className="w-full text-left border-collapse font-sans">
                                     <thead>
                                       <tr className={`border-b text-[10px] font-mono uppercase ${isDarkMode ? 'border-neutral-900 text-neutral-400' : 'border-neutral-200 text-neutral-500'}`}>
