@@ -46,9 +46,16 @@ export default function App() {
   // Listen for real Discord OAuth callbacks via postMessage
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
-      // Security: Validate message origin (either .run.app or localhost)
+      // Security: Validate message origin (support dynamic local window, run.app and onrender.com)
       const origin = event.origin;
-      if (!origin.endsWith(".run.app") && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
+      const isAllowedOrigin =
+        origin === window.location.origin ||
+        origin.endsWith(".run.app") ||
+        origin.endsWith(".onrender.com") ||
+        origin.includes("localhost") ||
+        origin.includes("127.0.0.1");
+
+      if (!isAllowedOrigin) {
         return;
       }
 
