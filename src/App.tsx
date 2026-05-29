@@ -158,6 +158,18 @@ export default function App() {
     setVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, price: newPrice } : v)));
   };
 
+  const handleAddVehicle = (newVehicle: Vehicle) => {
+    setVehicles((prev) => [...prev, newVehicle]);
+  };
+
+  const handleEditVehicle = (updatedVehicle: Vehicle) => {
+    setVehicles((prev) => prev.map((v) => (v.id === updatedVehicle.id ? updatedVehicle : v)));
+  };
+
+  const handleDeleteVehicle = (id: string) => {
+    setVehicles((prev) => prev.filter((v) => v.id !== id));
+  };
+
   // Add Sale registered report and lower stock automatically
   const handleAddSale = (newSale: Omit<SaleRecord, "id" | "date">) => {
     const freshSale: SaleRecord = {
@@ -198,6 +210,7 @@ export default function App() {
           vehicleName: targetReq.vehicleName,
           pricePaid: targetVehicle.price,
           salesperson: user?.globalName || user?.username || "Perseus Manager",
+          status: "Betaald",
         });
       }
     }
@@ -262,6 +275,9 @@ export default function App() {
               onUpdateVehiclePrice={handleUpdateVehiclePrice}
               onAddSale={handleAddSale}
               onUpdateRequestStatus={handleUpdateRequestStatus}
+              onAddVehicle={handleAddVehicle}
+              onEditVehicle={handleEditVehicle}
+              onDeleteVehicle={handleDeleteVehicle}
             />
           )}
         </AnimatePresence>

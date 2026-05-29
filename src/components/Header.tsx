@@ -35,7 +35,7 @@ export default function Header({
     { id: ActivePage.Home, label: "Home" },
     { id: ActivePage.Catalogus, label: "Catalogus" },
     { id: ActivePage.Klantenpaneel, label: "Klantenpaneel" },
-    { id: ActivePage.Medewerkerpaneel, label: "Employee Area" },
+    { id: ActivePage.Medewerkerpaneel, label: "Medewerkerpaneel" },
   ];
 
   return (

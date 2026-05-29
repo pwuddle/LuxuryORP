@@ -14,18 +14,17 @@ export interface Vehicle {
   id: string;
   name: string;
   brand: string;
-  category: "Super" | "Sports" | "SUV/Offroad" | "Classic" | "Muscle";
-  price: number;
+  category: "Super" | "Sports" | "SUV/Off-Road" | "Classic" | "Overige";
+  price: number; // Verkoopprijs
+  purchasePrice: number; // Inkoopprijs
   image: string;
   stock: number;
-  topSpeed: number; // in km/h
-  acceleration: number; // 0-100 index (e.g. 85)
-  braking: number; // 0-100 index (e.g. 70)
-  handling: number; // 0-100 index (e.g. 90)
-  engine: string;
-  transmission: "Handgeschakeld" | "Automaat";
+  topSpeedStock: number; // Topsnelheid Niet Getuned/Stock (km/h)
+  topSpeedTuned: number; // Topsnelheid Getuned/Fully (km/h)
   description: string;
+  inzittenden: number; // Aantal plekken/inzittenden
   featured?: boolean;
+  isSoldOut?: boolean; // Of de auto expliciet als uitverkocht is aangeduid
 }
 
 export interface DiscordUser {
@@ -49,6 +48,7 @@ export interface SaleRecord {
   pricePaid: number;
   date: string;
   salesperson: string;
+  status: "Gereserveerd" | "Besteld" | "Betaald" | "Opgehaald";
 }
 
 export interface PurchaseRequest {

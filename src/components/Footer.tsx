@@ -45,10 +45,10 @@ export default function Footer({ isDarkMode }: FooterProps) {
                 <a href="#" className="hover:text-[#A87E43] transition-colors">Algemene Voorwaarden</a>
               </li>
               <li>
-                <a href="#" className="hover:text-[#A87E43] transition-colors">Garantie & APK Beleid</a>
+                <a href="#" className="hover:text-[#A87E43] transition-colors">Garantie & Service</a>
               </li>
               <li>
-                <a href="#" className="hover:text-[#A87E43] transition-colors">Contact met Support</a>
+                <a href="#" className="hover:text-[#A87E43] transition-colors">Discord Support</a>
               </li>
               <li>
                 <a href="#" className="hover:text-[#A87E43] transition-colors flex items-center gap-1">

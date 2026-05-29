@@ -10,7 +10,7 @@ import {
   Car, FileText, Landmark, Clock, CheckCircle, HelpCircle, 
   ArrowRight, ShieldAlert, BadgeInfo, CreditCard, Send, Sparkles 
 } from "lucide-react";
-import { INITIAL_USER_VEHICLES, INITIAL_INVOICES } from "../data";
+import { INITIAL_USER_VEHICLES, INITIAL_INVOICES, INITIAL_VEHICLES } from "../data";
 import { Invoice, PurchaseRequest } from "../types";
 
 interface ClientPanelProps {
@@ -33,23 +33,7 @@ export default function ClientPanel({ isDarkMode, user, requests, onStartOAuth }
   );
 
   const formatPrice = (price: number) => {
-    return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(price);
-  };
-
-  const handlePayInvoice = (invoiceId: string) => {
-    setInvoices(prev => 
-      prev.map(inv => inv.id === invoiceId ? { ...inv, status: "Betaald" } : inv)
-    );
-  };
-
-  const handleCreateTicket = (e: FormEvent) => {
-    e.preventDefault();
-    if (!supportMessage.trim()) return;
-    setTicketStatus("Je supportticket is aangemaakt! Onze medewerkers reageren zo snel mogelijk in de Discord guild.");
-    setSupportMessage("");
-    setTimeout(() => {
-      setTicketStatus(null);
-    }, 5000);
+    return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(price);
   };
 
   // Styling helpers
@@ -164,38 +148,30 @@ export default function ClientPanel({ isDarkMode, user, requests, onStartOAuth }
 
             {userVehicles.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {userVehicles.map((v) => (
-                  <div key={v.id} className={`p-4 rounded-lg ${bgPanel} flex flex-col justify-between space-y-3 relative overflow-hidden border-t-2 border-[#A87E43]/60`}>
-                    <div>
-                      <div className="flex justify-between items-start">
-                        <h4 className={`text-sm font-black ${textPrimary}`}>{v.vehicleName}</h4>
-                        <span className="text-[10px] font-mono tracking-wider font-bold bg-black/35 text-[#A87E43] px-1.5 py-0.5 rounded">
-                          {v.plate}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-[10px] text-[#8e9297] mt-3">
-                        <div>
-                          <span>Aankoopdatum:</span>
-                          <strong className={`block ${textSecondary} mt-0.5`}>{v.purchaseDate}</strong>
-                        </div>
-                        <div>
-                          <span>Volgende Beurt:</span>
-                          <strong className={`block ${textSecondary} mt-0.5`}>{v.nextService}</strong>
+                {userVehicles.map((v) => {
+                  const matchedVehicle = INITIAL_VEHICLES.find(
+                    vh => vh.name.toLowerCase() === v.vehicleName.toLowerCase()
+                  );
+                  const seats = matchedVehicle?.inzittenden || 2;
+                  return (
+                    <div key={v.id} className={`p-4 rounded-lg ${bgPanel} flex flex-col justify-between space-y-3 relative overflow-hidden border-[#A87E43]/60 border-t-2`}>
+                      <div>
+                        <h4 className={`text-sm font-black ${textPrimary} mb-2`}>{v.vehicleName}</h4>
+                        
+                        <div className="grid grid-cols-2 gap-2 text-[10px] text-[#8e9297]">
+                          <div>
+                            <span>Aankoopdatum:</span>
+                            <strong className={`block ${textSecondary} mt-0.5`}>{v.purchaseDate}</strong>
+                          </div>
+                          <div>
+                            <span>Inzittenden:</span>
+                            <strong className={`block ${textSecondary} mt-0.5`}>{seats} plekken</strong>
+                          </div>
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-black/10 text-[10px]">
-                      <span className={`inline-flex items-center gap-1 ${
-                        v.maintenanceStatus === "Uitstekend" ? "text-green-400" : "text-[#A87E43]"
-                      }`}>
-                        <CheckCircle className="w-3.5 h-3.5" /> {v.maintenanceStatus}
-                      </span>
-                      <span className={`${textMuted}`}>{v.insurance}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8">
@@ -232,16 +208,12 @@ export default function ClientPanel({ isDarkMode, user, requests, onStartOAuth }
                     <p className={`text-[10px] ${textMuted}`}>Facturatiedatum: {inv.date}</p>
                   </div>
 
-                  <div className="flex items-center gap-4 justify-between w-full sm:w-auto">
-                    <span className="text-xs font-extrabold text-[#A87E43] font-sans">{formatPrice(inv.amount)}</span>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between w-full sm:w-auto">
+                    <span className="text-sm font-black text-[#A87E43] font-sans">{formatPrice(inv.amount)}</span>
                     {inv.status === "Openstaand" && (
-                      <button
-                        onClick={() => handlePayInvoice(inv.id)}
-                        className="px-3 py-1.5 bg-[#43b581] hover:bg-[#3ca374] text-white font-extrabold text-[10px] uppercase rounded-md shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
-                      >
-                        <CreditCard className="w-3 h-3" />
-                        Betaal
-                      </button>
+                      <span className="text-[10px] text-amber-500 font-extrabold bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
+                        Betalen: In-Karakter (IC) in de Game
+                      </span>
                     )}
                   </div>
                 </div>
@@ -253,51 +225,6 @@ export default function ClientPanel({ isDarkMode, user, requests, onStartOAuth }
         {/* Right Column: Quotes & Actions / Support */}
         <div className="lg:col-span-4 space-y-8">
           
-          {/* My requests list */}
-          <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4`}>
-            <h3 className={`text-sm font-extrabold ${textPrimary} flex items-center gap-2 border-b border-[#A87E43]/15 pb-3`}>
-              <Clock className="w-5 h-5 text-[#A87E43]" />
-              Actieve Offertes & Aanvragen
-            </h3>
-
-            {clientRequests.length > 0 ? (
-              <div className="space-y-3">
-                {clientRequests.map((req) => (
-                  <div key={req.id} className={`p-3.5 rounded-lg ${bgPanel} space-y-2 border-l-2 ${
-                    req.status === "Goedgekeurd" 
-                      ? "border-green-500" 
-                      : req.status === "Geweigerd" 
-                      ? "border-red-500" 
-                      : "border-yellow-500"
-                  }`}>
-                    <div className="flex justify-between items-start">
-                      <h4 className={`text-[11px] font-bold ${textPrimary} truncate max-w-[150px]`}>{req.vehicleName}</h4>
-                      <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                        req.status === "Goedgekeurd"
-                          ? "bg-green-500/10 text-green-400"
-                          : req.status === "Geweigerd"
-                          ? "bg-red-500/10 text-red-400"
-                          : "bg-yellow-500/10 text-yellow-400"
-                      }`}>
-                        {req.status}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center text-[10px] text-[#8e9297] pt-1">
-                      <span>Status: {req.status === "In Behandeling" ? "In Behandeling" : req.status}</span>
-                      <span>{req.date}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-6">
-                <Clock className="w-8 h-8 text-[#8e9297] mx-auto opacity-40 mb-2" />
-                <p className={`text-[11px] ${textMuted}`}>Geen lopende offertes of testritten geregistreerd.</p>
-              </div>
-            )}
-          </div>
-
           {/* Support Ticket Panel */}
           <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4`}>
             <h3 className={`text-sm font-extrabold ${textPrimary} flex items-center gap-2 border-b border-[#A87E43]/15 pb-3`}>
@@ -306,35 +233,24 @@ export default function ClientPanel({ isDarkMode, user, requests, onStartOAuth }
             </h3>
 
             <p className={`text-[11px] ${textMuted} leading-relaxed`}>
-              Vragen over uw facturatie of garagedossier? Dien direct een ticket in; onze medewerkers nemen contact met u op via Discord DM.
+              Heeft u vragen over uw facturatie, aankoopgeschiedenis of uw garagedossier?
             </p>
 
-            {ticketStatus && (
-              <div className="p-3 bg-green-500/15 border border-green-500/30 rounded text-[10px] text-green-400 leading-relaxed">
-                {ticketStatus}
-              </div>
-            )}
-
-            <form onSubmit={handleCreateTicket} className="space-y-3">
-              <textarea
-                value={supportMessage}
-                onChange={(e) => setSupportMessage(e.target.value)}
-                rows={3}
-                placeholder="Schrijf hier je vraag of opmerking..."
-                className={`w-full p-2.5 text-xs rounded border focus:border-[#A87E43] focus:ring-1 focus:ring-[#A87E43] outline-hidden ${
-                  isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde]" : "bg-white border-[#e3e5e8] text-black"
-                }`}
-                id="ticket-textarea"
-              />
-              <button
-                type="submit"
-                className="w-full py-2 bg-[#A87E43] hover:bg-[#926b34] text-black text-xs font-bold rounded-lg transition-transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-1 cursor-pointer shadow-md"
-                id="submit-ticket-btn"
+            <div className="p-4 rounded-lg bg-[#5865F2]/10 border border-[#5865F2]/20 text-xs text-[#5865F2] font-semibold flex flex-col gap-2.5 leading-relaxed">
+              <span className="font-extrabold uppercase text-[10px] tracking-wider text-[#A87E43]">
+                Discord Support
+              </span>
+              <span>
+                Al onze supportvragen en administratieve afhandelingen worden uitsluitend afgehandeld via onze officiële Discord guild. We maken op de website geen gebruik van een digitaal ticket-systeem.
+              </span>
+              <a
+                href="#"
+                onClick={(e) => e.preventDefault()}
+                className="w-full mt-1.5 py-2 bg-[#5865F2] hover:bg-[#4752c4] text-white text-xs font-bold rounded-lg transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
               >
-                <Send className="w-3 h-3" />
-                Ticket Aanmaken
-              </button>
-            </form>
+                Open Discord Guild & Support Kanaal
+              </a>
+            </div>
           </div>
         </div>
 

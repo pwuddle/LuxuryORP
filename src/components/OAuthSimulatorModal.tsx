@@ -5,6 +5,7 @@
 
 import { motion } from "motion/react";
 import { Sparkles, Check, AlertTriangle, ShieldCheck, UserCheck, EyeOff } from "lucide-react";
+import { useEffect } from "react";
 import { SIMULATED_USERS } from "../data";
 import { DiscordUser } from "../types";
 
@@ -15,6 +16,16 @@ interface OAuthSimulatorModalProps {
 }
 
 export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel }: OAuthSimulatorModalProps) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Backspace") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const handleSimulate = (userType: "klant" | "medewerker" | "manager" | "eigenaar" | "invalid") => {
     const selectedUser = SIMULATED_USERS[userType];
     onSuccess(selectedUser);
