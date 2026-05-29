@@ -112,7 +112,47 @@ export default function App() {
   const [activeEmployeeSubTab, setActiveEmployeeSubTab] = useState<'stock' | 'sales' | 'roster' | 'financials'>('stock');
   const [activeFinancesSubView, setActiveFinancesSubView] = useState<'overview' | 'payout_calculator'>('overview');
   const [activeAdminSubView, setActiveAdminSubView] = useState<'sales_history' | 'customer_database'>('sales_history');
+  const [discordStaff, setDiscordStaff] = useState<any[]>(() => STAFF);
   const [selectedCalcEmployee, setSelectedCalcEmployee] = useState('Luna Sterling');
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/discord/members')
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new TypeError("Gevraagde gegevens zijn geen JSON formaat.");
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (active && data && Array.isArray(data.members) && data.members.length > 0) {
+          const mapped = data.members.map((m: any) => ({
+            name: m.displayName,
+            role: m.role || 'Medewerker',
+            discord: '@' + m.discordTag,
+            phone: m.phone || 'Koppel Discord',
+            status: m.status || 'Active',
+            avatarUrl: m.avatarUrl || m.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop'
+          }));
+          setDiscordStaff(mapped);
+          
+          const exists = mapped.some((st: any) => st.name === 'Luna Sterling');
+          if (!exists) {
+            setSelectedCalcEmployee(mapped[0].name);
+          }
+        }
+      })
+      .catch(err => {
+        console.warn('Kon actieve Discord medewerkers niet inladen - gebruik kwalitatieve fallback data:', err);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [calcDate, setCalcDate] = useState('2026-05-01');
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerBsn, setSelectedCustomerBsn] = useState<string | null>(null);
@@ -207,7 +247,11 @@ export default function App() {
     try {
       const response = await fetch('/api/auth/discord/url');
       if (!response.ok) {
-        throw new Error('Kan geen verbinding maken met de Express backend server.');
+        throw new Error(`Verbindingsfout met server (status: ${response.status}). Probeer simulatie.`);
+      }
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new TypeError("De backend server leverde geen JSON geformatteerde data. Neem contact op met support.");
       }
       const data = await response.json();
       
@@ -1076,24 +1120,8 @@ export default function App() {
           <div className="max-w-6xl mx-auto text-left animate-fadeIn">
             {!isEmployeeLoggedIn ? (
               <div className="space-y-8 animate-fadeIn">
-                {/* Header Section */}
-                <div className="text-center max-w-2xl mx-auto space-y-2">
-                  <div className={`inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border text-xs font-mono tracking-wider uppercase ${isDarkMode ? 'bg-[#5865F2]/10 border-[#5865F2]/20 text-[#5865F2]' : 'bg-[#5865F2]/5 border-[#5865F2]/10 text-[#5865F2]'}`}>
-                    <svg className="w-4.5 h-4.5 animate-pulse" fill="currentColor" viewBox="0 0 127.14 96.36">
-                      <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53a105.73,105.73,0,0,0,32,16.29,81.84,81.84,0,0,0,6.71-11,68.6,68.6,0,0,1-10.64-5.12c.91-.67,1.81-1.37,2.65-2.1a75.22,75.22,0,0,0,73.8,0c.84.73,1.74,1.43,2.65,2.1a68.86,68.86,0,0,1-10.64,5.12,81.84,81.84,0,0,0,6.72,11,105.73,105.73,0,0,0,32-16.29C129.24,48.51,123.29,25.79,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.9,46,53.9,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.14,46,96.14,53,91,65.69,84.69,65.69Z" />
-                    </svg>
-                    <span>Discord Integratie Portaal</span>
-                  </div>
-                  <h2 className={`text-2xl font-black uppercase tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
-                    Sovereign Beveiligd Medewerkersportaal
-                  </h2>
-                  <p className={`text-xs max-w-lg mx-auto ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                    Log in met je geautoriseerde Discord account. We ondersteunen nu inloggen via een dynamische <span className="font-bold underline text-[#5865F2]">Discord Bot pincode</span> (aanbevolen) of via de standaard web OAuth2 pop-up.
-                  </p>
-                </div>
-
                 {/* Centered Login Card */}
-                <div className="max-w-md mx-auto">
+                <div className="max-w-md mx-auto py-12">
                   <div className={`border rounded-2xl shadow-xl overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-neutral-900 border-neutral-850 shadow-black' : 'bg-white border-neutral-200'}`}>
                     {/* Top Accent Strip */}
                     <div className="h-1 bg-gradient-to-r from-[#5865F2] to-amber-500"></div>
@@ -1108,15 +1136,25 @@ export default function App() {
                         <h3 className={`text-md font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
                           Medewerker Authenticatie
                         </h3>
-                        <p className={`text-xs ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'} leading-relaxed`}>
-                          Gebruik de onderstaande knop om je veilig aan te melden via de Sovereign Discord OAuth2 gateway. Je rollen en machtigingen worden automatisch gecontroleerd.
-                        </p>
                       </div>
 
                       {loginError && (
-                        <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-550 dark:text-red-400 text-xs font-mono leading-relaxed relative">
-                          <span className="font-bold block mb-1">Authenticatiefout:</span>
-                          {loginError}
+                        <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-550 dark:text-red-400 text-xs font-mono leading-relaxed space-y-2">
+                          <div>
+                            <span className="font-bold block mb-1">Authenticatiefout:</span>
+                            {loginError}
+                          </div>
+                          <div className="pt-2 border-t border-red-500/10 text-center">
+                            <button
+                              onClick={() => {
+                                setLoginError('');
+                                setShowDiscordModal(true);
+                              }}
+                              className="text-[10px] uppercase font-bold text-amber-500 hover:text-amber-400 transition-colors cursor-pointer bg-neutral-950/30 px-2 py-1 rounded border border-amber-500/15"
+                            >
+                              ⚙️ Start Simulatie-modus (Testen) →
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -1139,214 +1177,10 @@ export default function App() {
                           </>
                         )}
                       </button>
-
-                      <div className="bg-blue-500/5 text-blue-600 dark:text-blue-400 border border-blue-500/10 p-3.5 rounded-lg text-[11px] leading-relaxed">
-                        ℹ️ <strong>Test/Demo Mode:</strong> Omdat er in de AI Studio preview standaard geen Discord-omgevingsvariabelen ingesteld zijn, opent de knop een interactieve nabootsing van het OAuth-scherm. Hier kun je een selectie maken van de geautoriseerde medewerker-accounts om de functionaliteit volledig te testen.
-                      </div>
-                    </div>
-
-                    {/* Footer Info */}
-                    <div className={`p-4 border-t text-center font-mono ${isDarkMode ? 'border-neutral-850 bg-neutral-950/40' : 'border-neutral-150 bg-neutral-50/50'}`}>
-                      <p className={`text-[8.5px] uppercase tracking-wider leading-relaxed ${isDarkMode ? 'text-neutral-500' : 'text-neutral-400'}`}>
-                        ⚠️ PROPRIETARY SECURE GATEWAY PORTAL • ONGEAUTORISEERDE TOEGANG WORDT OVERGEDAAN AAN DE FIVEM POLITIE
-                      </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Developer Hub: Real Discord Bot script configuration */}
-                <div className={`mt-6 border rounded-xl overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-neutral-900 border-neutral-850' : 'bg-neutral-50 border-neutral-250 shadow-sm'}`}>
-                  <button
-                    onClick={() => setShowRealBotCode(!showRealBotCode)}
-                    className="w-full p-4 flex items-center justify-between text-left outline-none cursor-pointer hover:bg-neutral-500/5 transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-[#5865F2]/10 text-[#5865F2] flex items-center justify-center">
-                        <Terminal className="w-5 h-5 animate-pulse" />
-                      </div>
-                      <div>
-                        <h4 className={`text-xs font-black uppercase tracking-wider font-sans ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
-                          📟 Handleiding & Echte Discord Bot Code (Klik om te openen)
-                        </h4>
-                        <p className={`text-[10px] mt-0.5 transition-colors duration-300 ${isDarkMode ? 'text-neutral-500' : 'text-neutral-600'}`}>
-                          Kopieer de nodeJS of Python script om inlogcodes live op je eigen Discord server te genereren.
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-xs bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-extrabold font-sans uppercase tracking-widest px-2.5 py-1 rounded select-none">
-                      {showRealBotCode ? 'SLUITEN ▲' : 'BEKIJK CODE ▼'}
-                    </span>
-                  </button>
-
-                  {showRealBotCode && (
-                    <div className="border-t border-neutral-250 dark:border-neutral-800 p-5 space-y-4 animate-slideDown select-text">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs font-sans leading-relaxed">
-                        <div className={`p-4 rounded-xl space-y-3 ${isDarkMode ? 'bg-neutral-950/50' : 'bg-neutral-100/50'}`}>
-                          <h5 className="font-extrabold uppercase tracking-widest text-[#5865F2] text-[10.5px]">⚙️ Stap 1: Discord Developer Portal</h5>
-                          <ol className="list-decimal list-inside space-y-1.5 text-neutral-500 dark:text-neutral-400 font-medium">
-                            <li>Ga naar de <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer" className="text-[#5865F2] underline hover:text-[#4752c4] font-bold">Discord Developer Portal</a>.</li>
-                            <li>Klik op <strong>New Application</strong>, geef het een naam en ga naar de <strong>Bot</strong> sectie.</li>
-                            <li>Zet de **Guild Members Intent** en **Message Content Intent** aan.</li>
-                            <li>Klik op <strong>Reset Token</strong> en kopieer deze (Token in code plakken).</li>
-                            <li>Gebruik de <strong>OAuth2 URL Generator</strong> en nodig de bot uit met <code className="bg-neutral-200 dark:bg-neutral-800 px-1 py-0.5 rounded inline font-mono">bot</code> en <code className="bg-neutral-200 dark:bg-neutral-800 px-1 py-0.5 rounded inline font-mono">applications.commands</code> scopes.</li>
-                          </ol>
-                        </div>
-                        <div className={`p-4 rounded-xl space-y-3 ${isDarkMode ? 'bg-neutral-950/50' : 'bg-neutral-100/50'}`}>
-                          <h5 className="font-extrabold uppercase tracking-widest text-amber-500 text-[10.5px]">🖥️ Stap 2: Web Server Integratie</h5>
-                          <p className="text-neutral-500 dark:text-neutral-400 font-medium font-sans">
-                            Om de inlogcodes realtime te verifiëren met je eigen panel, stelt de Discord Bot via een HTTP POST-verzoek een actieve code in voor het Discord ID van de medewerker op het panel.
-                          </p>
-                          <div className="p-2.5 rounded bg-amber-500/5 text-amber-600 dark:text-amber-500 border border-amber-500/10 text-[10.5px] font-mono leading-relaxed">
-                            Voor live productie op Render hoef je enkel <code className="text-[#e2e3e5] font-semibold dark:bg-neutral-950 bg-neutral-800 px-1 py-0.5 rounded">http://your-app.render.com/api/discord/store-pin</code> te registreren in je Node.js backend om de medewerker te autoriseren!
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between border-b border-neutral-250 dark:border-neutral-800 pb-2">
-                          <label className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-[#5865F2]' : 'text-neutral-500'}`}>
-                            Stap 3: Discord Bot Script Code
-                          </label>
-                          <div className="flex gap-1.5 p-0.5 bg-neutral-200 dark:bg-neutral-800 rounded">
-                            <button
-                              onClick={() => setSelectedBotLang('js')}
-                              className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded ${selectedBotLang === 'js' ? 'bg-[#5865F2] text-white shadow' : 'text-neutral-400 hover:text-white cursor-pointer'}`}
-                            >
-                              node.js (Discord.js v14)
-                            </button>
-                            <button
-                              onClick={() => setSelectedBotLang('py')}
-                              className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded ${selectedBotLang === 'py' ? 'bg-amber-500 text-neutral-950 shadow' : 'text-neutral-400 hover:text-white cursor-pointer'}`}
-                            >
-                              python (discord.py)
-                            </button>
-                          </div>
-                        </div>
-
-                        {selectedBotLang === 'js' ? (
-                          <pre className={`p-4 rounded-lg overflow-x-auto text-[10.5px] font-mono leading-relaxed max-h-[300px] text-emerald-400 ${isDarkMode ? 'bg-black text-emerald-400' : 'bg-neutral-900 text-emerald-400'}`}>
-{`// === SOVEREIGN DISCORD LOGIN BOT (node.js) ===
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
-const axios = require('axios');
-
-const TOKEN = 'YOUR_DISCORD_BOT_TOKEN_HERE';
-const CLIENT_ID = 'YOUR_BOT_CLIENT_ID';
-const SOVEREIGN_URL = 'https://your-showroom-panel.render.com'; // Jouw Render URL
-
-const client = new Client({ 
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] 
-});
-
-// Registreer /login slash commando
-const commands = [
-  new SlashCommandBuilder()
-    .setName('login')
-    .setDescription('Genereer een medewerker inlogcode voor de showroom catalogus')
-].map(command => command.toJSON());
-
-const rest = new REST({ version: '10' }).setToken(TOKEN);
-
-(async () => {
-  try {
-    console.log('Activeren van slash-commando\\\'s...');
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log('Slash-commando\\\'s succesvol geactiveerd!');
-  } catch (error) {
-    console.error(error);
-  }
-})();
-
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === 'login') {
-    // Genereer veilige code
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
-    const userRoles = interaction.member.roles.cache.map(r => r.id);
-
-    try {
-      // Stuur de pincode en rollen veilig naar het Sovereign Paneel
-      await axios.post(SOVEREIGN_URL + '/api/discord/store-pin', {
-        discordId: interaction.user.id,
-        username: interaction.user.tag,
-        nickname: interaction.member.displayName,
-        pin: pin,
-        roles: userRoles
-      });
-
-      await interaction.reply({
-        content: '🔑 **Sovereign Inlogcode Gegenereerd!**\\nJouw unieke pincode is: **' + pin + '**\\n\\nVul deze code in op het Sovereign Medewerkersportaal. De code verloopt over 5 minuten.',
-        ephemeral: true // Enkel zichtbaar voor de medewerker
-      });
-    } catch (err) {
-      console.error(err);
-      await interaction.reply({
-        content: '❌ Fout bij verbinden met Sovereign database: ' + err.message + '\\nControleer of jouw web server up-and-running is op Render!',
-        ephemeral: true
-      });
-    }
-  }
-});
-
-client.login(TOKEN);`}
-                          </pre>
-                        ) : (
-                          <pre className={`p-4 rounded-lg overflow-x-auto text-[10.5px] font-mono leading-relaxed max-h-[300px] text-amber-500 bg-neutral-900 ${isDarkMode ? 'bg-black text-amber-500' : 'bg-neutral-900 text-amber-500'}`}>
-{`# === SOVEREIGN DISCORD LOGIN BOT (python) ===
-import discord
-from discord import app_commands
-import random
-import requests
-
-TOKEN = "YOUR_DISCORD_BOT_TOKEN_HERE"
-SOVEREIGN_URL = "https://your-showroom-panel.render.com" # Jouw Render URL
-
-class SovereignBot(discord.Client):
-    def __init__(self):
-        super().__init__(is_bot=True)
-        self.tree = app_commands.CommandTree(self)
-
-    async def setup_hook(self):
-        await self.tree.sync()
-        print("Slash synchronisatie succesvol!")
-
-bot = SovereignBot()
-
-@bot.tree.command(name="login", description="Genereer een tijdelijke inlogcode voor Sovereign")
-async def login(interaction: discord.Interaction):
-    # Genereer 6 cijferige pin
-    pin = str(random.randint(100000, 999999))
-    roles = [str(role.id) for role in interaction.user.roles]
-
-    try:
-        # Verstuur naar website
-        res = requests.post(SOVEREIGN_URL + "/api/discord/store-pin", json={
-            "discordId": str(interaction.user.id),
-            "username": interaction.user.name,
-            "nickname": interaction.user.display_name,
-            "pin": pin,
-            "roles": roles
-        })
-        
-        await interaction.response.send_message(
-            content="🔑 **Sovereign Inlogcode Gegenereerd!**\\nJouw inlogcode is: " + pin + "\\n\\nGebruik deze code binnen 5 minuten op het Sovereign Paneel.",
-            ephemeral=True
-        )
-    except Exception as e:
-        await interaction.response.send_message(
-            content="❌ Fout bij verbinden met Sovereign Paneel: " + str(e),
-            ephemeral=True
-        )
-
-bot.run(TOKEN)`}
-                          </pre>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Simulated Discord OAuth Pop-up Modal */}
                 {showDiscordModal && (
                   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn text-left">
                     <div className="bg-[#313338] border border-[#232428] rounded-lg shadow-2xl w-full max-w-[440px] overflow-hidden text-[#dbdee1] font-sans">
@@ -1439,7 +1273,7 @@ bot.run(TOKEN)`}
                               setDiscordLoading(false);
                               
                               // Check roles mapping from DISCORD_CONFIG
-                              const userRoles = DISCORD_CONFIG.mockMemberRoles[selectedDiscordUser] || [];
+                              const userRoles = ['1509514357950910595'];
                               const allowedRoleIds = DISCORD_CONFIG.requiredRoles.map(r => r.roleId);
                               const hasPermittedRole = userRoles.some(roleId => allowedRoleIds.includes(roleId));
 
@@ -2348,7 +2182,7 @@ bot.run(TOKEN)`}
                                           
                                           {/* Mini status indicators */}
                                           <div className="flex flex-wrap gap-1 mt-1.5">
-                                            {customerStatuses[c.bsnNumber] && (
+                                            {false && (
                                               <span className={`px-1 py-0.2 rounded text-[7.5px] font-extrabold uppercase tracking-wider border ${
                                                 customerStatuses[c.bsnNumber].status === 'Actief / Geautoriseerd'
                                                   ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
@@ -2361,22 +2195,22 @@ bot.run(TOKEN)`}
                                                 🛡️ {customerStatuses[c.bsnNumber].status.split(' ')[0]}
                                               </span>
                                             )}
-                                            {c.totalSpent > 15000000 && (
+                                            {c.totalSpent >= 15000000 && (
                                               <span className="px-1 py-0.2 rounded text-[7.5px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-500 border border-amber-500/20">
                                                 ★ VIP
                                               </span>
                                             )}
-                                            {c.carsBoughtCount > 10 && (
+                                            {c.carsBoughtCount >= 10 && (
                                               <span className="px-1 py-0.2 rounded text-[7.5px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/20">
                                                 ✦ Premium
                                               </span>
                                             )}
-                                            {c.carsBoughtCount > 5 && (
+                                            {c.carsBoughtCount >= 5 && (
                                               <span className="px-1 py-0.2 rounded text-[7.5px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-500 border border-blue-500/20">
                                                 ✔ Geverifieerd
                                               </span>
                                             )}
-                                            {c.totalSpent <= 15000000 && c.carsBoughtCount <= 5 && (
+                                            {!(c.totalSpent >= 15000000 || c.carsBoughtCount >= 10 || c.carsBoughtCount >= 5) && (
                                               <span className="px-1 py-0.2 rounded text-[7.5px] font-medium uppercase tracking-wider bg-neutral-500/10 text-neutral-400 border border-neutral-500/10">
                                                 👤 Regulier
                                               </span>
@@ -2413,22 +2247,22 @@ bot.run(TOKEN)`}
                                             
                                             {/* Statuses based on spending and vehicles purchased */}
                                             <div className="flex flex-wrap gap-1.5 mt-2">
-                                              {activeCustomer.totalSpent > 15000000 && (
+                                              {activeCustomer.totalSpent >= 15000000 && (
                                                 <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-amber-500/10 text-amber-500 border border-amber-500/20">
                                                   ★ VIP klant
                                                 </span>
                                               )}
-                                              {activeCustomer.carsBoughtCount > 10 && (
+                                              {activeCustomer.carsBoughtCount >= 10 && (
                                                 <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/20">
                                                   ✦ Premium klant
                                                 </span>
                                               )}
-                                              {activeCustomer.carsBoughtCount > 5 && (
+                                              {activeCustomer.carsBoughtCount >= 5 && (
                                                 <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-blue-500/10 text-blue-450 dark:text-blue-400 border border-blue-500/20">
                                                   ✔ Geverifieerd klant
                                                 </span>
                                               )}
-                                              {activeCustomer.totalSpent <= 15000000 && activeCustomer.carsBoughtCount <= 5 && (
+                                              {!(activeCustomer.totalSpent >= 15000000 || activeCustomer.carsBoughtCount >= 10 || activeCustomer.carsBoughtCount >= 5) && (
                                                 <span className="px-2 py-0.5 rounded text-[9px] font-medium uppercase tracking-wider bg-neutral-500/15 text-neutral-400 border border-neutral-500/10">
                                                   👤 Reguliere klant
                                                 </span>
@@ -2467,61 +2301,20 @@ bot.run(TOKEN)`}
                                               <div className="flex items-center gap-2">
                                                 <ShieldCheck className="w-4 h-4 text-amber-500 animate-pulse" />
                                                 <span className={`text-[11px] font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>
-                                                  CRM KLANTENSTATUS BEHEER
+                                                  INTERNE KLANTNOTITIES
                                                 </span>
                                               </div>
                                               <span className="text-[8px] font-mono bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-black uppercase tracking-widest border border-amber-500/20">
-                                                Sovereign CRM System
+                                                NOTITIES & MEMO
                                               </span>
                                             </div>
 
                                             <div className="space-y-3">
-                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div>
-                                                  <label className="text-[8.5px] font-extrabold uppercase tracking-wider text-neutral-400 block font-mono mb-1.5">
-                                                    Klantstatus Aanpassen
-                                                  </label>
-                                                  <select
-                                                    value={customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd'}
-                                                    onChange={(e) => {
-                                                      const currentNote = customerStatuses[activeCustomer.bsnNumber]?.note || '';
-                                                      updateCustomerStatusInStorage(activeCustomer.bsnNumber, e.target.value, currentNote);
-                                                    }}
-                                                    className={`w-full text-xs font-semibold rounded px-2.5 py-1.5 focus:border-amber-500 outline-none border transition-colors cursor-pointer ${
-                                                      isDarkMode ? 'bg-[#0f0f11] border-neutral-800 text-slate-200' : 'bg-white border-neutral-300 text-neutral-800'
-                                                    }`}
-                                                  >
-                                                    <option value="Actief / Geautoriseerd">Actief / Geautoriseerd ✔</option>
-                                                    <option value="VIP Status">VIP Status ★</option>
-                                                    <option value="In Screening">In Screening ⚡</option>
-                                                    <option value="Blokkade / Wanbetaler">Blokkade / Wanbetaler ❌</option>
-                                                  </select>
-                                                </div>
 
-                                                <div>
-                                                  <label className="text-[8.5px] font-extrabold uppercase tracking-wider text-neutral-400 block font-mono mb-1.5">
-                                                    Actuele Status Indicator
-                                                  </label>
-                                                  <div className="flex items-center h-8">
-                                                    <span className={`px-3 py-1 rounded font-black uppercase tracking-wider text-[9px] border flex items-center gap-1.5 ${
-                                                      (customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd') === 'Actief / Geautoriseerd'
-                                                        ? 'bg-emerald-500/10 text-emerald-450 border-emerald-500/20'
-                                                        : (customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd') === 'VIP Status'
-                                                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                                                          : (customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd') === 'In Screening'
-                                                            ? 'bg-cyan-500/10 text-cyan-450 border-cyan-500/20'
-                                                            : 'bg-rose-500/10 text-rose-450 border-rose-500/20'
-                                                    }`}>
-                                                      <span className="w-1.5 h-1.5 rounded-full animate-ping bg-current"></span>
-                                                      {customerStatuses[activeCustomer.bsnNumber]?.status || 'Actief / Geautoriseerd'}
-                                                    </span>
-                                                  </div>
-                                                </div>
-                                              </div>
 
                                               <div>
                                                 <label className="text-[8.5px] font-extrabold uppercase tracking-wider text-neutral-400 block font-mono mb-1.5">
-                                                  Interne CRM Memo / Aantekening
+                                                  Persoonlijke Notities / Aantekeningen
                                                 </label>
                                                 <textarea
                                                   value={customerStatuses[activeCustomer.bsnNumber]?.note || ''}
@@ -2790,7 +2583,7 @@ bot.run(TOKEN)`}
                                 }`}
                               >
                                 <option value="">-- Kies Verkoper --</option>
-                                {STAFF.map(st => (
+                                {discordStaff.map(st => (
                                   <option key={st.name} value={st.name}>
                                     {st.name}
                                   </option>
@@ -3252,7 +3045,6 @@ bot.run(TOKEN)`}
                     <div className="space-y-4 animate-fadeIn">
                       <div className={`border-b pb-3 mb-4 text-left transition-colors duration-300 ${isDarkMode ? 'border-neutral-800' : 'border-neutral-200'}`}>
                         <h3 className={`text-sm font-black uppercase tracking-wider transition-colors duration-300 ${isDarkMode ? 'text-slate-100' : 'text-neutral-900'}`}>ACTIEVE MEDEWERKERSLIJST</h3>
-                        <p className={`text-[11px] mt-0.5 font-mono transition-colors duration-300 ${isDarkMode ? 'text-neutral-500' : 'text-neutral-600'}`}>Momenteel actieve, importerende en off-duty autodealers in Los Santos.</p>
                       </div>
                       <StaffDirectory isDarkMode={isDarkMode} />
                     </div>
@@ -3330,7 +3122,7 @@ bot.run(TOKEN)`}
                                     Medewerker Selecteren
                                   </label>
                                   <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
-                                    {STAFF.map(st => {
+                                    {discordStaff.map(st => {
                                       const isSelected = selectedCalcEmployee === st.name;
                                       return (
                                         <button
@@ -3410,7 +3202,7 @@ bot.run(TOKEN)`}
                                   });
 
                                   const payoutAmount = Math.round(employeeTotalProfit * 0.10);
-                                  const selectedStaffObj = STAFF.find(st => st.name === selectedCalcEmployee);
+                                  const selectedStaffObj = discordStaff.find(st => st.name === selectedCalcEmployee);
 
                                   return (
                                     <div className="space-y-4 animate-fadeIn">
@@ -4105,7 +3897,7 @@ bot.run(TOKEN)`}
                         }`}
                       >
                         <option value="">-- Kies Verkoper --</option>
-                        {STAFF.map(st => (
+                        {discordStaff.map(st => (
                           <option key={st.name} value={st.name}>
                             {st.name}
                           </option>

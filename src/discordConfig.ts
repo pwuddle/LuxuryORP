@@ -17,10 +17,5 @@ export const DISCORD_CONFIG = {
       roleName: 'Medewerker',
       description: 'Deeltijd & Voltijd dealermedewerkers'
     }
-  ],
-
-  // Simulation mapping linking mock employee accounts to their Discord Role IDs.
-  // Modify these role lists to simulate authorization failures or success conditions.
-  mockMemberRoles: {
-  } as Record<string, string[]>
+  ]
 };
