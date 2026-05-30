@@ -101,6 +101,12 @@ export default function EmployeePanel({
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ text: string; error: boolean } | null>(null);
 
+  // Purge States
+  const [isPurging, setIsPurging] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<{ text: string; error: boolean } | null>(null);
+  const [showPurgeConfirmArea, setShowPurgeConfirmArea] = useState(false);
+  const [confirmPurgeInput, setConfirmPurgeInput] = useState("");
+
   const isOwner = !!user?.isOwner;
   const isCoordinator = !!user?.isCoordinator;
 
@@ -269,6 +275,41 @@ export default function EmployeePanel({
       })
       .finally(() => {
         setIsImporting(false);
+      });
+  };
+
+  // Override and purge all customer & sales information permanently
+  const handlePurgeSpreadsheet = () => {
+    if (!checkActionPermission()) return;
+    if (confirmPurgeInput !== "WISSEN") {
+      alert("Typ a.u.b. 'WISSEN' in het invoerveld om de definitieve opschoning te bevestigen.");
+      return;
+    }
+    setIsPurging(true);
+    setPurgeResult(null);
+    fetch("/api/dealership/purge", { method: "POST" })
+      .then(res => {
+        if (!res.ok) throw new Error("Fout bij het overschrijven en purgen van de spreadsheet & database");
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          setPurgeResult({ text: data.message, error: false });
+          setShowPurgeConfirmArea(false);
+          setConfirmPurgeInput("");
+          if (onStateRefresh) {
+            onStateRefresh();
+          }
+        } else {
+          setPurgeResult({ text: data.message || "Onbekende fout", error: true });
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        setPurgeResult({ text: `Opschoning mislukt: ${err.message}`, error: true });
+      })
+      .finally(() => {
+        setIsPurging(false);
       });
   };
 
@@ -1805,6 +1846,70 @@ export default function EmployeePanel({
                       )}
                     </div>
                   </div>
+                </div>
+
+                <div className="border-t border-[#A87E43]/20 pt-4 space-y-4">
+                  <h4 className="text-xs font-bold text-rose-500 uppercase tracking-wider mb-2 border-l-2 border-rose-500 pl-2">Gevaarlijke Zone: Gegevens Purgen & Overschrijven</h4>
+                  <p className="text-[11px] text-gray-400">
+                    Overschrijf en wis de gehele gekoppelde Google Spreadsheet tabbladen (&apos;Klanten&apos; & &apos;Verkopen&apos;) en wis permanent alle lokale klant- en verkoopinformatie. Dit kan niet ongedaan worden gemaakt.
+                  </p>
+                  
+                  {showPurgeConfirmArea ? (
+                    <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/35 space-y-3">
+                      <p className="text-[11px] text-rose-400 font-extrabold uppercase tracking-wider">⚠️ WEET U DIT ABSOLUUT ZEKER?</p>
+                      <p className="text-[10px] text-gray-300">
+                        Typ het woord <strong className="text-rose-500 font-black">&quot;WISSEN&quot;</strong> hieronder in om te bevestigen dat alle verkoopregistraties en ingelogde klanten definitief verwijderd moeten worden uit de database én de verbonden spreadsheet.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Typ 'WISSEN'..."
+                          value={confirmPurgeInput}
+                          onChange={(e) => setConfirmPurgeInput(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs rounded border border-rose-500/40 bg-zinc-900 text-white outline-hidden font-bold sm:max-w-[150px]"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={isPurging || confirmPurgeInput !== "WISSEN"}
+                            onClick={handlePurgeSpreadsheet}
+                            className="bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase px-4 py-1.5 rounded transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isPurging ? "Legen..." : "Ja, Wis Alles Definitief"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowPurgeConfirmArea(false);
+                              setConfirmPurgeInput("");
+                            }}
+                            className="bg-neutral-700 hover:bg-neutral-600 text-white text-[10px] font-bold uppercase px-3 py-1.5 rounded transition-all cursor-pointer"
+                          >
+                            Annuleren
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isCoordinator}
+                      onClick={() => setShowPurgeConfirmArea(true)}
+                      className={`py-2 px-4 text-[10px] font-black uppercase rounded shadow transition-all ${
+                        isCoordinator 
+                          ? "bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed"
+                          : "bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-500 border border-rose-500/30 cursor-pointer"
+                      }`}
+                    >
+                      🔥 Overschrijf & Purge Spreadsheet
+                    </button>
+                  )}
+
+                  {purgeResult && (
+                    <div className={`p-2.5 text-[10px] font-bold rounded ${purgeResult.error ? "bg-rose-500/15 border border-rose-500/30 text-rose-400" : "bg-green-500/15 border border-green-500/30 text-green-400"}`}>
+                      {purgeResult.text}
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t border-[#A87E43]/20 pt-4 space-y-4">

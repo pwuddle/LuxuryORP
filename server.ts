@@ -937,6 +937,35 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // Google Sheets and local database purge API
+  app.post("/api/dealership/purge", async (req, res) => {
+    registeredCustomers = [];
+    editedCustomers = {};
+    sales = [];
+    
+    // Save state locally
+    saveState(true);
+    
+    let message = "Alle lokale klanten en verkoopregistraties zijn definitief verwijderd.";
+    let sheetCleared = false;
+    
+    if (spreadsheetUrl && googleRefreshToken) {
+      try {
+        const syncResult = await syncAllToGoogleSheets();
+        if (syncResult.success) {
+          message += " De Google Spreadsheet is ook succesvol bijgewerkt en leeggemaakt.";
+          sheetCleared = true;
+        } else {
+          message += ` Waarschuwing: Kon de Google Spreadsheet niet leegmaken: ${syncResult.message}`;
+        }
+      } catch (err: any) {
+        message += ` Waarschuwing: Fout bij leegmaken Google Spreadsheet: ${err.message}`;
+      }
+    }
+    
+    res.json({ success: true, message, sheetCleared });
+  });
+
   // Google Sheets forced manual synchronization API
   app.post("/api/dealership/google-sync", async (req, res) => {
     const result = await syncAllToGoogleSheets();
