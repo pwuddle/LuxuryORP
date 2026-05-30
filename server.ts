@@ -20,6 +20,7 @@ let vehicles: Vehicle[] = [...INITIAL_VEHICLES];
 let requests: PurchaseRequest[] = [...INITIAL_REQUESTS];
 let sales: SaleRecord[] = [...INITIAL_SALES];
 let deletedCustomerIds: string[] = [];
+let registeredCustomers: any[] = [];
 
 function loadState() {
   try {
@@ -29,6 +30,7 @@ function loadState() {
       if (Array.isArray(data.requests)) requests = data.requests;
       if (Array.isArray(data.sales)) sales = data.sales;
       if (Array.isArray(data.deletedCustomerIds)) deletedCustomerIds = data.deletedCustomerIds;
+      if (Array.isArray(data.registeredCustomers)) registeredCustomers = data.registeredCustomers;
       console.log("Successfully loaded dealership state from persistent file.");
     } else {
       console.log("No persistent dealership state file found. Using default initial state.");
@@ -43,7 +45,7 @@ function saveState() {
   try {
     fs.writeFileSync(
       STATE_FILE_PATH,
-      JSON.stringify({ vehicles, requests, sales, deletedCustomerIds }, null, 2),
+      JSON.stringify({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers }, null, 2),
       "utf-8"
     );
   } catch (err) {
@@ -64,7 +66,7 @@ async function startServer() {
 
   // API Route: Get the current global dealership state
   app.get("/api/dealership/state", (req, res) => {
-    res.json({ vehicles, requests, sales, deletedCustomerIds });
+    res.json({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers });
   });
 
   // API Route: Add or update a vehicle in the catalog
@@ -139,6 +141,31 @@ async function startServer() {
     }
     saveState();
     res.json({ success: true, deletedCustomerIds });
+  });
+
+  // API Route: Register customer on login
+  app.post("/api/dealership/customers/login", (req, res) => {
+    const visitor = req.body;
+    if (!visitor || !visitor.id) {
+      return res.status(400).json({ error: "Ongeldige gegevens" });
+    }
+    // Check if duplicate (already registered)
+    const exists = registeredCustomers.some(c => c.id === visitor.id);
+    if (!exists) {
+      registeredCustomers.push({
+        id: visitor.id,
+        username: visitor.username,
+        globalName: visitor.globalName || visitor.username,
+        avatar: visitor.avatar,
+        hasLoggedIn: true,
+        registrationDate: new Date().toISOString().split("T")[0],
+        fullName: visitor.globalName || visitor.username
+      });
+      // Also if they were deleted previously, we can remove them from deleted list
+      deletedCustomerIds = deletedCustomerIds.filter(id => id !== visitor.id);
+      saveState();
+    }
+    res.json({ success: true, registeredCustomers, deletedCustomerIds });
   });
 
   // API Route: Fetch live Discord member & online counts from public invite link

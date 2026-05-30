@@ -18,10 +18,11 @@ interface ClientPanelProps {
   user: SafeUser | null;
   requests: PurchaseRequest[];
   sales: SaleRecord[];
+  deletedCustomerIds: string[];
   onStartOAuth: (pane: "klantenpaneel" | "medewerkerpaneel") => void;
 }
 
-export default function ClientPanel({ isDarkMode, user, requests, sales, onStartOAuth }: ClientPanelProps) {
+export default function ClientPanel({ isDarkMode, user, requests, sales, deletedCustomerIds, onStartOAuth }: ClientPanelProps) {
   // Local state for client data
   const [supportMessage, setSupportMessage] = useState("");
   const [ticketStatus, setTicketStatus] = useState<string | null>(null);
@@ -57,29 +58,21 @@ export default function ClientPanel({ isDarkMode, user, requests, sales, onStart
   // Dynamically compute userVehicles for the logged-in user
   const userVehicles = useMemo(() => {
     if (!user) return [];
-    return INITIAL_USER_VEHICLES.filter(uv => {
-      // For initial user vehicles, if we delete the sale mapping to Pfister Comet S2,
-      // it should also disappear.
-      if (uv.vehicleName === "Pfister Comet S2") {
-        return sales.some(s => s.buyerDiscordId === user.id && s.vehicleName === "Pfister Comet S2");
-      }
-      return true;
-    }).concat(
-      // Also append cars from any new sales that have been finalized (e.g. status "Betaald" or "Opgehaald")!
-      sales
-        .filter(s => s.buyerDiscordId === user.id && (s.status === "Betaald" || s.status === "Opgehaald"))
-        .filter(s => !INITIAL_USER_VEHICLES.some(uv => uv.vehicleName === s.vehicleName))
-        .map((s) => ({
-          id: `dyn_uv_${s.id}`,
-          vehicleName: s.vehicleName,
-          plate: "PS-" + Math.floor(10 + Math.random() * 89) + "-XG",
-          purchaseDate: s.date,
-          maintenanceStatus: "Uitstekend",
-          insurance: "All-Risk",
-          nextService: "2026-12-12"
-        }))
-    );
-  }, [user, sales]);
+    if (deletedCustomerIds.includes(user.id)) return [];
+
+    // Only allow vehicles that have a sale registered under this user's ID
+    return sales
+      .filter(s => s.buyerDiscordId === user.id && (s.status === "Betaald" || s.status === "Opgehaald"))
+      .map((s) => ({
+        id: `dyn_uv_${s.id}`,
+        vehicleName: s.vehicleName,
+        plate: "PS-" + Math.floor(10 + Math.random() * 89) + "-XG",
+        purchaseDate: s.date,
+        maintenanceStatus: "Uitstekend",
+        insurance: "All-Risk",
+        nextService: "2026-12-12"
+      }));
+  }, [user, sales, deletedCustomerIds]);
 
   // Filter requests submitted by this client
   const clientRequests = requests.filter(

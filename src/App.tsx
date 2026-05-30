@@ -28,6 +28,7 @@ export default function App() {
   const [requests, setRequests] = useState<PurchaseRequest[]>(INITIAL_REQUESTS);
   const [sales, setSales] = useState<SaleRecord[]>(INITIAL_SALES);
   const [deletedCustomerIds, setDeletedCustomerIds] = useState<string[]>([]);
+  const [registeredCustomers, setRegisteredCustomers] = useState<any[]>([]);
 
   // Fetch the latest global dealership state from the backend (making state fully shared)
   const fetchState = () => {
@@ -41,6 +42,7 @@ export default function App() {
         if (Array.isArray(data.requests)) setRequests(data.requests);
         if (Array.isArray(data.sales)) setSales(data.sales);
         if (Array.isArray(data.deletedCustomerIds)) setDeletedCustomerIds(data.deletedCustomerIds);
+        if (Array.isArray(data.registeredCustomers)) setRegisteredCustomers(data.registeredCustomers);
       })
       .catch((err) => {
         console.warn("Mislukt om live dealership status te synchroniseren:", err);
@@ -90,6 +92,15 @@ export default function App() {
       if (event.data?.type === "OAUTH_AUTH_SUCCESS") {
         const loggedInUser: DiscordUser = event.data.user;
         setUser(loggedInUser);
+
+        // Register customer in persistent database on login
+        fetch("/api/dealership/customers/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(loggedInUser)
+        })
+          .then(() => fetchState())
+          .catch(err => console.error("Could not register customer login:", err));
         
         // Routely navigate to appropriate pane based on requested pane
         if (requestedPane === "medewerkerpaneel") {
@@ -164,6 +175,15 @@ export default function App() {
     }
 
     setUser(simulatedUser);
+
+    // Register customer in persistent database on login
+    fetch("/api/dealership/customers/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(simulatedUser)
+    })
+      .then(() => fetchState())
+      .catch(err => console.error("Could not register customer login:", err));
     
     // Auto-navigate based on requested pane
     if (requestedPane === "medewerkerpaneel") {
@@ -404,6 +424,7 @@ export default function App() {
               user={user}
               requests={requests}
               sales={sales}
+              deletedCustomerIds={deletedCustomerIds}
               onStartOAuth={handleStartOAuth}
             />
           )}
@@ -416,6 +437,7 @@ export default function App() {
               requests={requests}
               sales={sales}
               deletedCustomerIds={deletedCustomerIds}
+              registeredCustomers={registeredCustomers}
               onDeleteCustomer={handleDeleteCustomer}
               onStartOAuth={handleStartOAuth}
               onUpdateVehicleStock={handleUpdateVehicleStock}

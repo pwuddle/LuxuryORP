@@ -21,6 +21,7 @@ interface EmployeePanelProps {
   requests: PurchaseRequest[];
   sales: SaleRecord[];
   deletedCustomerIds: string[];
+  registeredCustomers: any[];
   onDeleteCustomer: (id: string) => void;
   onStartOAuth: (pane: "klantenpaneel" | "medewerkerpaneel") => void;
   onUpdateVehicleStock: (id: string, newStock: number) => void;
@@ -70,6 +71,7 @@ export default function EmployeePanel({
   requests,
   sales,
   deletedCustomerIds,
+  registeredCustomers,
   onDeleteCustomer,
   onStartOAuth,
   onUpdateVehicleStock,
@@ -92,10 +94,41 @@ export default function EmployeePanel({
 
   // Dynamically derive customers from the current sales and requests, merged with manual edits
   const customers = useMemo(() => {
+    // 1. Initial customers mapping
     const list = [...INITIAL_CUSTOMERS].map(c => ({
       ...c,
       ...(editedCustomers[c.id] || {})
     }));
+
+    // 2. Merge registeredCustomers from login
+    registeredCustomers.forEach(rc => {
+      const idx = list.findIndex(c => c.id === rc.id);
+      if (idx === -1) {
+        list.push({
+          id: rc.id,
+          username: rc.username,
+          globalName: rc.globalName,
+          avatar: rc.avatar,
+          hasLoggedIn: true,
+          registrationDate: rc.registrationDate || "2026-05-12",
+          fullName: rc.fullName || rc.globalName,
+          bsn: rc.bsn || "123" + Math.floor(100000 + Math.random() * 899999),
+          birthDate: rc.birthDate || "1990-01-01",
+          ...(editedCustomers[rc.id] || {})
+        });
+      } else {
+        list[idx] = {
+          ...list[idx],
+          username: rc.username,
+          globalName: rc.globalName,
+          avatar: rc.avatar,
+          hasLoggedIn: true,
+          ...(editedCustomers[rc.id] || {})
+        };
+      }
+    });
+
+    // 3. Merge sales buyers
     sales.forEach(s => {
       if (!list.some(c => c.id === s.buyerDiscordId)) {
         const edited = editedCustomers[s.buyerDiscordId] || {};
@@ -113,6 +146,8 @@ export default function EmployeePanel({
         });
       }
     });
+
+    // 4. Merge requests buyers
     requests.forEach(r => {
       if (!list.some(c => c.id === r.buyerDiscordId)) {
         const edited = editedCustomers[r.buyerDiscordId] || {};
@@ -130,8 +165,9 @@ export default function EmployeePanel({
         });
       }
     });
+
     return list.filter(c => !deletedCustomerIds.includes(c.id));
-  }, [sales, requests, editedCustomers, deletedCustomerIds]);
+  }, [sales, requests, editedCustomers, deletedCustomerIds, registeredCustomers]);
 
   // Search & Selected Customer in Klantenbestand
   const [customerSearch, setCustomerSearch] = useState("");
