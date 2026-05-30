@@ -37,21 +37,55 @@ function loadState() {
   try {
     if (fs.existsSync(STATE_FILE_PATH)) {
       const data = JSON.parse(fs.readFileSync(STATE_FILE_PATH, "utf-8"));
-      if (Array.isArray(data.vehicles)) vehicles = data.vehicles;
-      if (Array.isArray(data.requests)) requests = data.requests;
-      if (Array.isArray(data.sales)) sales = data.sales;
-      if (Array.isArray(data.deletedCustomerIds)) deletedCustomerIds = data.deletedCustomerIds;
-      if (Array.isArray(data.registeredCustomers)) registeredCustomers = data.registeredCustomers;
-      if (data.editedCustomers) editedCustomers = data.editedCustomers;
-      if (typeof data.spreadsheetUrl === "string") spreadsheetUrl = data.spreadsheetUrl;
       
+      const mockVehicleIds = ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"];
+      if (Array.isArray(data.vehicles)) {
+        vehicles = data.vehicles.filter((v: any) => v && !mockVehicleIds.includes(v.id));
+      } else {
+        vehicles = [...INITIAL_VEHICLES];
+      }
+
+      if (Array.isArray(data.requests)) {
+        requests = data.requests;
+      } else {
+        requests = [...INITIAL_REQUESTS];
+      }
+
+      const mockSaleIds = ["s1", "s2"];
+      if (Array.isArray(data.sales)) {
+        sales = data.sales.filter((s: any) => s && !mockSaleIds.includes(s.id));
+      } else {
+        sales = [...INITIAL_SALES];
+      }
+
+      if (Array.isArray(data.deletedCustomerIds)) deletedCustomerIds = data.deletedCustomerIds;
+
+      const mockCustomerIds = ["123456789012345678", "888888888888888888", "111111111111111111", "222222222222222222", "333333333333333333", "444444444444444444", "555555555555555555"];
+      if (Array.isArray(data.registeredCustomers)) {
+        registeredCustomers = data.registeredCustomers.filter((c: any) => c && !mockCustomerIds.includes(c.id));
+      } else {
+        registeredCustomers = [];
+      }
+
+      if (data.editedCustomers) {
+        editedCustomers = { ...data.editedCustomers };
+        for (const mid of mockCustomerIds) {
+          delete editedCustomers[mid];
+        }
+      } else {
+        editedCustomers = {};
+      }
+
+      if (typeof data.spreadsheetUrl === "string") spreadsheetUrl = data.spreadsheetUrl;
       if (typeof data.googleClientId === "string") googleClientId = data.googleClientId;
       if (typeof data.googleClientSecret === "string") googleClientSecret = data.googleClientSecret;
       if (typeof data.googleAccessToken === "string") googleAccessToken = data.googleAccessToken;
       if (typeof data.googleRefreshToken === "string") googleRefreshToken = data.googleRefreshToken;
       if (typeof data.googleTokenExpiry === "number") googleTokenExpiry = data.googleTokenExpiry;
 
-      console.log("Successfully loaded dealership state from persistent file.");
+      console.log("Successfully loaded dealership state from persistent file and removed mock presets/voorbeeld data.");
+      // Instantly save state to clean persistent file too
+      saveState();
     } else {
       console.log("No persistent dealership state file found. Using default initial state.");
       saveState();

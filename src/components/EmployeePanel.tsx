@@ -57,15 +57,7 @@ interface Customer {
   birthDate?: string;
 }
 
-const INITIAL_CUSTOMERS: Customer[] = [
-  { id: "123456789012345678", username: "davey_santos", globalName: "Davey Santos", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=150", hasLoggedIn: true, registrationDate: "2026-05-10", fullName: "Davey Santos", bsn: "182749302", birthDate: "1988-10-15" },
-  { id: "888888888888888888", username: "franklin_clinton", globalName: "Franklin Clinton", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150", hasLoggedIn: true, registrationDate: "2026-05-15", fullName: "Franklin Clinton", bsn: "283749302", birthDate: "1993-02-28" },
-  { id: "111111111111111111", username: "jimmy_de_santa", globalName: "Jimmy De Santa", avatar: null, hasLoggedIn: true, registrationDate: "2026-05-20", fullName: "James De Santa", bsn: "112233445", birthDate: "1991-04-20" },
-  { id: "222222222222222222", username: "trevor_philips", globalName: "Trevor Philips", avatar: null, hasLoggedIn: false, registrationDate: "2026-05-21" },
-  { id: "333333333333333333", username: "michael_de_santa", globalName: "Michael De Santa", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=150", hasLoggedIn: false, registrationDate: "2026-05-22", fullName: "Michael Townley" },
-  { id: "444444444444444444", username: "lamar_davis", globalName: "Lamar Davis", avatar: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=150", hasLoggedIn: true, registrationDate: "2026-05-23", fullName: "Lamar Davis", bsn: "555555555", birthDate: "1987-08-11" },
-  { id: "555555555555555555", username: "lester_crest", globalName: "Lester Crest", avatar: null, hasLoggedIn: false, registrationDate: "2026-05-24", bsn: "888888888" }
-];
+const INITIAL_CUSTOMERS: Customer[] = [];
 
 export default function EmployeePanel({
   isDarkMode,
