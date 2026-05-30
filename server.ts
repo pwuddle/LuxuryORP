@@ -85,17 +85,17 @@ function loadState() {
 
       console.log("Successfully loaded dealership state from persistent file and removed mock presets/voorbeeld data.");
       // Instantly save state to clean persistent file too
-      saveState();
+      saveState(true);
     } else {
       console.log("No persistent dealership state file found. Using default initial state.");
-      saveState();
+      saveState(true);
     }
   } catch (err) {
     console.error("Failed to load dealership state from file:", err);
   }
 }
 
-function saveState() {
+function saveState(skipGoogleSync: boolean = false) {
   try {
     fs.writeFileSync(
       STATE_FILE_PATH,
@@ -115,7 +115,7 @@ function saveState() {
       }, null, 2),
       "utf-8"
     );
-    if (onStateChangeCallback) {
+    if (onStateChangeCallback && !skipGoogleSync) {
       onStateChangeCallback();
     }
   } catch (err) {
@@ -193,7 +193,7 @@ async function startServer() {
       if (data.expires_in) {
         googleTokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
       }
-      saveState();
+      saveState(true);
       console.log("Successfully refreshed Google access token.");
       return googleAccessToken;
     } catch (err) {
@@ -355,216 +355,26 @@ async function startServer() {
     }
   }
 
-  // Assign global auto-sync on state change
-  let syncTimeout: NodeJS.Timeout | null = null;
-  onStateChangeCallback = () => {
-    if (syncTimeout) clearTimeout(syncTimeout);
-    syncTimeout = setTimeout(() => {
-      if (spreadsheetUrl && googleRefreshToken) {
-        console.log("Automatic auto-sync to Google Sheets triggered.");
-        syncAllToGoogleSheets()
-          .then(res => {
-            if (res.success) {
-              console.log("Auto-sync success:", res.message);
-            } else {
-              console.warn("Auto-sync did not complete:", res.message);
-            }
-          })
-          .catch(e => console.error("Auto-sync background error:", e));
-      }
-    }, 1500) as any;
-  };
-
-  // Google Sheets configuration and secure values retrieval
-  app.get("/api/dealership/google-config", (req, res) => {
-    res.json({
-      spreadsheetUrl,
-      googleClientId,
-      googleClientSecret: googleClientSecret ? "•••••••••••••" : "",
-      isConnected: !!googleRefreshToken,
-      googleTokenExpiry
-    });
-  });
-
-  // Google Sheets configurations submission
-  app.post("/api/dealership/google-config", (req, res) => {
-    const { url, clientId, clientSecret } = req.body;
-    
-    spreadsheetUrl = url || "";
-    if (clientId !== undefined) googleClientId = clientId;
-    
-    if (clientSecret !== undefined && clientSecret !== "•••••••••••••" && clientSecret !== "") {
-      googleClientSecret = clientSecret;
-    }
-    
-    saveState();
-    res.json({ 
-      success: true, 
-      spreadsheetUrl,
-      googleClientId,
-      isConnected: !!googleRefreshToken
-    });
-  });
-
-  // Redirect client to Google Consent Dialog
-  app.get("/api/dealership/google-auth-start", (req, res) => {
-    if (!googleClientId) {
-      return res.status(400).send("Fout: Google Client ID is niet geconfigureerd in Website Administratie.");
-    }
-    const host = getRequestHost(req);
-    const redirectUri = `${host}/api/dealership/google-auth-callback`;
-    
-    const params = new URLSearchParams({
-      client_id: googleClientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: "https://www.googleapis.com/auth/spreadsheets",
-      access_type: "offline",
-      prompt: "consent"
-    });
-    
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-    res.redirect(googleAuthUrl);
-  });
-
-  // Google OAuth Authorization Exchange Code Callback
-  app.get("/api/dealership/google-auth-callback", async (req, res) => {
-    const { code, error } = req.query;
-    if (error) {
-      return res.status(400).send(`Google Login is geannuleerd of mislukt: ${error}`);
-    }
-    if (!code) {
-      return res.status(400).send("Geen geldige code ontvangen van Google.");
-    }
-
-    try {
-      const host = getRequestHost(req);
-      const redirectUri = `${host}/api/dealership/google-auth-callback`;
-
-      const tokenUrl = "https://oauth2.googleapis.com/token";
-      const bodyParams = new URLSearchParams({
-        code: code as string,
-        client_id: googleClientId,
-        client_secret: googleClientSecret,
-        redirect_uri: redirectUri,
-        grant_type: "authorization_code"
-      });
-
-      const tokenRes = await fetch(tokenUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: bodyParams.toString()
-      });
-
-      if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        throw new Error(`Google Token API returned ${tokenRes.status}: ${errText}`);
-      }
-
-      const tokenData = await tokenRes.json();
-      googleAccessToken = tokenData.access_token;
-      if (tokenData.refresh_token) {
-        googleRefreshToken = tokenData.refresh_token; 
-      }
-      if (tokenData.expires_in) {
-        googleTokenExpiry = Date.now() + (tokenData.expires_in * 1000) - 60000;
-      }
-      saveState();
-
-      res.send(`
-        <!doctype html>
-        <html lang="nl">
-          <head>
-            <meta charset="utf-8">
-            <title>Google Sheets Gekoppeld</title>
-            <style>
-              body {
-                background: #1e1f22;
-                color: #dcddde;
-                font-family: sans-serif;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 100vh;
-                margin: 0;
-                text-align: center;
-              }
-              .card {
-                background: #2b2d31;
-                border: 1px solid #A87E43;
-                border-radius: 8px;
-                padding: 30px;
-                max-width: 400px;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-              }
-              h1 { color: #A87E43; margin-top: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
-              p { font-size: 13px; color: #949ba4; line-height: 1.5; }
-              .spinner {
-                border: 3px solid rgba(255,255,255,0.05);
-                width: 30px;
-                height: 30px;
-                border-radius: 50%;
-                border-left-color: #A87E43;
-                animation: spin 0.8s linear infinite;
-                margin: 20px auto 0 auto;
-              }
-              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <h1>Google Sheets Gekoppeld!</h1>
-              <p>Machtiging is succesvol verleend. Deze pop-up sluit na enkele seconden...</p>
-              <div class="spinner"></div>
-            </div>
-            <script>
-              if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_SHEETS_AUTH_SUCCESS' }, '*');
-                setTimeout(() => {
-                  window.close();
-                }, 1500);
-              } else {
-                window.location.href = '/';
-              }
-            </script>
-          </body>
-        </html>
-      `);
-    } catch (err: any) {
-      console.error("Google OAuth Callback exchange error:", err);
-      res.status(500).send(`Google OAuth validatie mislukt: ${err.message}`);
-    }
-  });
-
-  // Google Sheets sign out config reset
-  app.post("/api/dealership/google-disconnect", (req, res) => {
-    googleAccessToken = "";
-    googleRefreshToken = "";
-    googleTokenExpiry = 0;
-    saveState();
-    res.json({ success: true });
-  });
-
-  // Google Sheets forced manual synchronization API
-  app.post("/api/dealership/google-sync", async (req, res) => {
-    const result = await syncAllToGoogleSheets();
-    res.json(result);
-  });
-
-  // Google Sheets manual import from Spreadsheet logic
-  app.post("/api/dealership/google-import", async (req, res) => {
+  // Core Import from Google Sheets Function
+  async function importAllFromGoogleSheetsInternal(): Promise<{
+    success: boolean;
+    message: string;
+    importedCatalogCount: number;
+    importedCustomersCount: number;
+    importedSalesCount: number;
+  }> {
     if (!spreadsheetUrl) {
-      return res.json({ success: false, message: "Geen Google Spreadsheet URL geconfigureerd in Website Administratie." });
+      return { success: false, message: "Geen Google Spreadsheet URL geconfigureerd.", importedCatalogCount: 0, importedCustomersCount: 0, importedSalesCount: 0 };
     }
 
     const spreadsheetId = getSpreadsheetId(spreadsheetUrl);
     if (!spreadsheetId) {
-      return res.json({ success: false, message: "Ongeldige Google Spreadsheet URL. Kon de ID niet extraheren." });
+      return { success: false, message: "Ongeldige Google Spreadsheet URL. Kon de ID niet extraheren.", importedCatalogCount: 0, importedCustomersCount: 0, importedSalesCount: 0 };
     }
 
     const token = await refreshGoogleAccessToken();
     if (!token) {
-      return res.json({ success: false, message: "Server is niet verbonden met Google. Koppel eerst uw Google Account via Website Administratie." });
+      return { success: false, message: "Server is niet verbonden met Google of autorisatie is verlopen.", importedCatalogCount: 0, importedCustomersCount: 0, importedSalesCount: 0 };
     }
 
     try {
@@ -575,11 +385,8 @@ async function startServer() {
       });
 
       if (!metaRes.ok) {
-        if (metaRes.status === 401 || metaRes.status === 403) {
-          return res.json({ success: false, message: "Geen toegang tot spreadsheet. Uw Google Account koppeling is mogelijk verlopen. Koppel deze opnieuw." });
-        }
         const errorDetail = await metaRes.text();
-        throw new Error(`Google API fout: ${errorDetail}`);
+        return { success: false, message: `Toegang tot spreadsheet geweigerd door Google: ${errorDetail}`, importedCatalogCount: 0, importedCustomersCount: 0, importedSalesCount: 0 };
       }
 
       const metadata = await metaRes.json();
@@ -885,7 +692,7 @@ async function startServer() {
         }
       }
 
-      saveState();
+      saveState(true);
 
       let summary = "Gegevens succesvol geïmporteerd!";
       const details = [];
@@ -899,17 +706,240 @@ async function startServer() {
         summary = "Koppeling succesvol tot stand gebracht, maar er werden geen bruikbare rijen gevonden in de tabbladen 'Catalogus', 'Klanten' of 'Verkopen'.";
       }
 
-      return res.json({
+      return {
         success: true,
         message: summary,
         importedCatalogCount,
         importedCustomersCount,
         importedSalesCount
-      });
-    } catch (error: any) {
-      console.error("Google sheets import error:", error);
-      return res.json({ success: false, message: `Handmatige import mislukt: ${error.message}` });
+      };
+    } catch (e: any) {
+      console.error("Internal import exception:", e);
+      return {
+        success: false,
+        message: `Fout tijdens inlezen: ${e.message}`,
+        importedCatalogCount: 0,
+        importedCustomersCount: 0,
+        importedSalesCount: 0
+      };
     }
+  }
+
+  // Assign global auto-sync on state change
+  let syncTimeout: NodeJS.Timeout | null = null;
+  onStateChangeCallback = () => {
+    if (syncTimeout) clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(() => {
+      if (spreadsheetUrl && googleRefreshToken) {
+        console.log("Automatic auto-sync to Google Sheets triggered.");
+        syncAllToGoogleSheets()
+          .then(res => {
+            if (res.success) {
+              console.log("Auto-sync success:", res.message);
+            } else {
+              console.warn("Auto-sync did not complete:", res.message);
+            }
+          })
+          .catch(e => console.error("Auto-sync background error:", e));
+      }
+    }, 1500) as any;
+  };
+
+  // Google Sheets configuration and secure values retrieval
+  app.get("/api/dealership/google-config", (req, res) => {
+    res.json({
+      spreadsheetUrl,
+      googleClientId,
+      googleClientSecret: googleClientSecret ? "•••••••••••••" : "",
+      isConnected: !!googleRefreshToken,
+      googleTokenExpiry
+    });
+  });
+
+  // Google Sheets configurations submission
+  app.post("/api/dealership/google-config", (req, res) => {
+    const { url, clientId, clientSecret } = req.body;
+    
+    spreadsheetUrl = url || "";
+    if (clientId !== undefined) googleClientId = clientId;
+    
+    if (clientSecret !== undefined && clientSecret !== "•••••••••••••" && clientSecret !== "") {
+      googleClientSecret = clientSecret;
+    }
+    
+    saveState(true);
+    res.json({ 
+      success: true, 
+      spreadsheetUrl,
+      googleClientId,
+      isConnected: !!googleRefreshToken
+    });
+  });
+
+  // Redirect client to Google Consent Dialog
+  app.get("/api/dealership/google-auth-start", (req, res) => {
+    if (!googleClientId) {
+      return res.status(400).send("Fout: Google Client ID is niet geconfigureerd in Website Administratie.");
+    }
+    const host = getRequestHost(req);
+    const redirectUri = `${host}/api/dealership/google-auth-callback`;
+    
+    const params = new URLSearchParams({
+      client_id: googleClientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "https://www.googleapis.com/auth/spreadsheets",
+      access_type: "offline",
+      prompt: "consent"
+    });
+    
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    res.redirect(googleAuthUrl);
+  });
+
+  // Google OAuth Authorization Exchange Code Callback
+  app.get("/api/dealership/google-auth-callback", async (req, res) => {
+    const { code, error } = req.query;
+    if (error) {
+      return res.status(400).send(`Google Login is geannuleerd of mislukt: ${error}`);
+    }
+    if (!code) {
+      return res.status(400).send("Geen geldige code ontvangen van Google.");
+    }
+
+    try {
+      const host = getRequestHost(req);
+      const redirectUri = `${host}/api/dealership/google-auth-callback`;
+
+      const tokenUrl = "https://oauth2.googleapis.com/token";
+      const bodyParams = new URLSearchParams({
+        code: code as string,
+        client_id: googleClientId,
+        client_secret: googleClientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code"
+      });
+
+      const tokenRes = await fetch(tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: bodyParams.toString()
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        throw new Error(`Google Token API returned ${tokenRes.status}: ${errText}`);
+      }
+
+      const tokenData = await tokenRes.json();
+      googleAccessToken = tokenData.access_token;
+      if (tokenData.refresh_token) {
+        googleRefreshToken = tokenData.refresh_token; 
+      }
+      if (tokenData.expires_in) {
+        googleTokenExpiry = Date.now() + (tokenData.expires_in * 1000) - 60000;
+      }
+      saveState(true);
+
+      if (spreadsheetUrl) {
+        console.log("Google Sheets connection successful. Automatically reading current datasets to avoid overrides...");
+        importAllFromGoogleSheetsInternal()
+          .then(result => {
+            if (result.success) {
+              console.log("Auto-import on connection success:", result.message);
+            } else {
+              console.warn("Auto-import on connection warning:", result.message);
+            }
+          })
+          .catch(e => {
+            console.error("Auto-import on connection failed:", e);
+          });
+      }
+
+      res.send(`
+        <!doctype html>
+        <html lang="nl">
+          <head>
+            <meta charset="utf-8">
+            <title>Google Sheets Gekoppeld</title>
+            <style>
+              body {
+                background: #1e1f22;
+                color: #dcddde;
+                font-family: sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                text-align: center;
+              }
+              .card {
+                background: #2b2d31;
+                border: 1px solid #A87E43;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 400px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+              }
+              h1 { color: #A87E43; margin-top: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+              p { font-size: 13px; color: #949ba4; line-height: 1.5; }
+              .spinner {
+                border: 3px solid rgba(255,255,255,0.05);
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                border-left-color: #A87E43;
+                animation: spin 0.8s linear infinite;
+                margin: 20px auto 0 auto;
+              }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>Google Sheets Gekoppeld!</h1>
+              <p>Machtiging is succesvol verleend. Deze pop-up sluit na enkele seconden...</p>
+              <div class="spinner"></div>
+            </div>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'GOOGLE_SHEETS_AUTH_SUCCESS' }, '*');
+                setTimeout(() => {
+                  window.close();
+                }, 1500);
+              } else {
+                window.location.href = '/';
+              }
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (err: any) {
+      console.error("Google OAuth Callback exchange error:", err);
+      res.status(500).send(`Google OAuth validatie mislukt: ${err.message}`);
+    }
+  });
+
+  // Google Sheets sign out config reset
+  app.post("/api/dealership/google-disconnect", (req, res) => {
+    googleAccessToken = "";
+    googleRefreshToken = "";
+    googleTokenExpiry = 0;
+    saveState(true);
+    res.json({ success: true });
+  });
+
+  // Google Sheets forced manual synchronization API
+  app.post("/api/dealership/google-sync", async (req, res) => {
+    const result = await syncAllToGoogleSheets();
+    res.json(result);
+  });
+
+  // Google Sheets manual import from Spreadsheet logic
+  app.post("/api/dealership/google-import", async (req, res) => {
+    const result = await importAllFromGoogleSheetsInternal();
+    res.json(result);
   });
 
   // API Route: Add or update a vehicle in the catalog
