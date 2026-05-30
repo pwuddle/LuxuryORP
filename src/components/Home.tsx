@@ -8,7 +8,8 @@ import { motion } from "motion/react";
 import { Sparkles, Compass, Shield, Award, Clock, ArrowRight, MessageSquare, Car, Users, TrendingUp } from "lucide-react";
 
 import { ActivePage, DiscordUser } from "../types";
-import backgroundImg from "../../assets/.aistudio/background.jpg";
+
+const BACKGROUND_IMAGE_URL = "/background.jpg";
 
 interface HomeProps {
   isDarkMode: boolean;
@@ -59,7 +60,7 @@ export default function Home({ isDarkMode, onNavigate, onStartOAuth, user }: Hom
       <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-transparent" id="hero-banner">
         <div 
           className="absolute inset-0 bg-cover bg-center transition-transform duration-10000 ease-out hover:scale-105" 
-          style={{ backgroundImage: `url(${backgroundImg || 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?q=80&w=1200&auto=format&fit=crop'})` }} 
+          style={{ backgroundImage: `url(${BACKGROUND_IMAGE_URL})` }} 
         />
         <div className="absolute inset-0 bg-linear-to-r from-black/90 via-black/75 to-black/30" />
         
