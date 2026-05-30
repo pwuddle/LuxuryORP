@@ -1,75 +1,81 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-export enum ActivePage {
-  Home = "home",
-  Catalogus = "catalogus",
-  Klantenpaneel = "klantenpaneel",
-  Medewerkerpaneel = "medewerkerpaneel",
-}
-
 export interface Vehicle {
   id: string;
   name: string;
-  brand: string;
-  category: "Super" | "Sports" | "SUV/Off-Road" | "Classic" | "Overige";
-  price: number; // Verkoopprijs
-  purchasePrice: number; // Inkoopprijs
-  image: string;
+  realModel?: string;
+  category: 'Super' | 'Sport' | 'Off-Road' | 'Sedan';
+  price: number;
+  purchasePrice?: number;
+  topSpeed: number; // in mph or km/h
+  passengers: number; // Max passengers count
   stock: number;
-  topSpeedStock: number; // Topsnelheid Niet Getuned/Stock (km/h)
-  topSpeedTuned: number; // Topsnelheid Getuned/Fully (km/h)
-  description: string;
-  inzittenden: number; // Aantal plekken/inzittenden
-  featured?: boolean;
-  isSoldOut?: boolean; // Of de auto expliciet als uitverkocht is aangeduid
+  badge?: string;
+  badgeColor?: string; // Hex color code for the badge
+  imageUrl: string; // URL for vehicle photo, fallback to SVG if empty/not URL
+  featured: boolean;
 }
 
-export interface DiscordUser {
-  id: string;
-  username: string;
-  globalName?: string;
-  avatar: string | null;
-  role: "Klant" | "Medewerker" | "Geen";
-  guildMember?: boolean;
-  discordRoleName?: string;
-  isManager?: boolean;
-  isOwner?: boolean;
+export interface CustomizationOptions {
+  paintType: 'Glossy' | 'Metallic' | 'Matte' | 'Chrome';
+  primaryColor: string;
+  secondaryColor: string;
+  pearlescent: string;
+  underglowColor: string;
+  underglowOn: boolean;
+  rimStyle: string;
+  windowTint: 'None' | 'Light' | 'Dark' | 'Limo';
+  spoilerLevel: 'Stock' | 'Low-Profile' | 'Carbon Track' | 'GT Wing';
+  licensePlateText: string;
+  licensePlateStyle: 'SA_EXOTIC' | 'SA_BLACK' | 'YANKTON' | 'CAR_DEALER';
 }
 
-export interface SaleRecord {
+export interface Booking {
   id: string;
-  buyerDiscordId: string;
-  buyerName: string;
-  vehicleId: string;
-  vehicleName: string;
-  pricePaid: number;
-  date: string;
-  salesperson: string;
-  status: "Gereserveerd" | "Besteld" | "Betaald" | "Opgehaald";
-}
-
-export interface PurchaseRequest {
-  id: string;
-  vehicleId: string;
-  vehicleName: string;
-  buyerDiscordId: string;
-  buyerName: string;
-  buyerAvatar: string | null;
-  status: "In Behandeling" | "Goedgekeurd" | "Geweigerd";
-  date: string;
-  paymentType: "In-game Dollars" | "Financiering";
-}
-
-export interface Invoice {
-  id: string;
-  invoiceNumber: string;
   customerName: string;
-  customerDiscordId: string;
-  vehicleName: string;
-  amount: number;
+  customerPhone: string;
+  customerDiscord: string;
+  vehicleId: string;
+  bookingType: 'Test Drive' | 'Showroom Viewing' | 'Financing Consult' | 'Private Appraisal';
   date: string;
-  status: "Betaald" | "Openstaand";
+  timeSlot: string;
+  customNotes?: string;
+  status: 'Approved' | 'Pending' | 'Completed';
+}
+
+export interface ImportRequest {
+  id: string;
+  spawnCode: string; // The in-game vehicle spawn code
+  gtaName: string; // E.g., '17skyline' or 'sf90'
+  vehicleType: string;
+  sourceUrl?: string; // e.g. GTA5-mods link
+  maxBudget: number;
+  engineModPackage: 'Stage 1' | 'Stage 2' | 'Stage 3' | 'Drift Spec' | 'None';
+  cosmeticModPackage: 'Standard' | 'Full Widebody' | 'Carbon Details' | 'None';
+  customPlate: string;
+  specialInstructions: string;
+  status: 'Received' | 'In Progress' | 'Shipped to Port' | 'Ready for Pickup';
+  etaDays: number;
+}
+
+export interface Staff {
+  name: string;
+  role: string;
+  discord: string;
+  phone: string;
+  status: 'Active' | 'In City' | 'Offline' | 'Importing';
+  avatarUrl: string;
+}
+
+export interface Sale {
+  id: string;
+  customerName: string;
+  vehicleName: string;
+  price: number;
+  date: string;
+  paymentMethod: 'Cash' | 'Bank Transfer' | 'Leasing Loan';
+  salesAgent: string;
+  bsnNumber?: string;
+  birthDate?: string;
+  vehicleType?: string;
+  rushCosts?: boolean;
+  delivered?: boolean | 'reserved';
 }
