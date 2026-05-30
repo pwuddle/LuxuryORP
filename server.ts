@@ -160,8 +160,7 @@ async function startServer() {
         globalName: visitor.globalName || visitor.username,
         avatar: visitor.avatar,
         hasLoggedIn: true,
-        registrationDate: new Date().toISOString().split("T")[0],
-        fullName: visitor.globalName || visitor.username
+        registrationDate: new Date().toISOString().split("T")[0]
       });
     }
     // Always remove from deleted list if they are logging in again (meaning they are restored)

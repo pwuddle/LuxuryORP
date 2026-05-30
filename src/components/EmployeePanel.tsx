@@ -112,9 +112,9 @@ export default function EmployeePanel({
           avatar: rc.avatar,
           hasLoggedIn: true,
           registrationDate: rc.registrationDate || "2026-05-12",
-          fullName: rc.fullName || rc.globalName,
-          bsn: rc.bsn || "123" + Math.floor(100000 + Math.random() * 899999),
-          birthDate: rc.birthDate || "1990-01-01",
+          fullName: "",
+          bsn: "",
+          birthDate: "",
           ...(editedCustomers[rc.id] || {})
         });
       } else {
@@ -140,9 +140,9 @@ export default function EmployeePanel({
           avatar: null,
           hasLoggedIn: true,
           registrationDate: s.date || "2026-05-12",
-          fullName: s.buyerName,
-          bsn: "123" + Math.floor(100000 + Math.random() * 899999),
-          birthDate: "1990-01-01",
+          fullName: "",
+          bsn: "",
+          birthDate: "",
           ...edited
         });
       }
@@ -159,9 +159,9 @@ export default function EmployeePanel({
           avatar: r.buyerAvatar,
           hasLoggedIn: true,
           registrationDate: r.date || "2026-05-28",
-          fullName: r.buyerName,
-          bsn: "321" + Math.floor(100000 + Math.random() * 899999),
-          birthDate: "1990-01-01",
+          fullName: "",
+          bsn: "",
+          birthDate: "",
           ...edited
         });
       }
