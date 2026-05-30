@@ -22,7 +22,9 @@ interface EmployeePanelProps {
   sales: SaleRecord[];
   deletedCustomerIds: string[];
   registeredCustomers: any[];
+  editedCustomers: Record<string, Partial<Customer>>;
   onDeleteCustomer: (id: string) => void;
+  onEditCustomerDetails: (id: string, fullName: string, bsn: string, birthDate: string) => void;
   onStartOAuth: (pane: "klantenpaneel" | "medewerkerpaneel") => void;
   onUpdateVehicleStock: (id: string, newStock: number) => void;
   onUpdateVehiclePrice: (id: string, newPrice: number) => void;
@@ -72,7 +74,9 @@ export default function EmployeePanel({
   sales,
   deletedCustomerIds,
   registeredCustomers,
+  editedCustomers,
   onDeleteCustomer,
+  onEditCustomerDetails,
   onStartOAuth,
   onUpdateVehicleStock,
   onUpdateVehiclePrice,
@@ -85,9 +89,6 @@ export default function EmployeePanel({
 }: EmployeePanelProps) {
   // Navigation
   const [activeTab, setActiveTab] = useState<"verkoop" | "klanten" | "catalogus" | "financieel">("verkoop");
-
-  // Local state to store edited customer details
-  const [editedCustomers, setEditedCustomers] = useState<Record<string, Partial<Customer>>>({});
 
   // Track confirmation of customer deletion
   const [confirmDeleteCustomerId, setConfirmDeleteCustomerId] = useState<string | null>(null);
@@ -263,14 +264,12 @@ export default function EmployeePanel({
   const handleSaveCustomerDetails = (e: FormEvent) => {
     e.preventDefault();
     if (!editingCustomerFields) return;
-    setEditedCustomers(prev => ({
-      ...prev,
-      [editingCustomerFields.id]: {
-        fullName: editingCustomerFields.fullName,
-        bsn: editingCustomerFields.bsn,
-        birthDate: editingCustomerFields.birthDate
-      }
-    }));
+    onEditCustomerDetails(
+      editingCustomerFields.id,
+      editingCustomerFields.fullName,
+      editingCustomerFields.bsn,
+      editingCustomerFields.birthDate
+    );
     setEditingCustomerFields(null);
   };
 
@@ -660,8 +659,13 @@ export default function EmployeePanel({
                           <div className="flex items-center gap-2.5 text-xs">
                             {c.avatar ? <img src={c.avatar} className="w-8 h-8 rounded-full object-cover shrink-0" /> : <div className="w-8 h-8 rounded-full bg-neutral-800 text-neutral-400 flex items-center justify-center text-xs font-black">@</div>}
                             <div>
-                              <strong className={`${textPrimary} block`}>{c.fullName || c.globalName}</strong>
-                              <span className="text-[10px] text-gray-500 font-mono block">ID: {c.id}</span>
+                              <strong className={`${textPrimary} block text-xs font-semibold`}>
+                                {c.fullName ? c.fullName : <span className="text-amber-400/70 font-normal italic">In-character naam niet ingesteld</span>}
+                              </strong>
+                              <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">
+                                Discord: <span className="font-bold text-gray-300">{c.globalName || c.username}</span> (@{c.username || "onbekend"})
+                              </span>
+                              <span className="text-[9px] text-gray-500 font-mono block">ID: {c.id}</span>
                               <span className={`text-[9px] px-1.5 py-0.5 mt-1 rounded-xs inline-block uppercase font-bold tracking-wider ${cTier.color}`}>
                                 {cTier.name}
                               </span>
@@ -687,8 +691,13 @@ export default function EmployeePanel({
                         <div className="flex items-center gap-3">
                           {selectedCustomerObj.avatar ? <img src={selectedCustomerObj.avatar} className="w-12 h-12 rounded-full border border-[#A87E43] shrink-0" /> : <div className="w-12 h-12 rounded-full bg-neutral-800 border border-[#A87E43] text-[#A87E43] flex items-center justify-center text-lg font-black">@</div>}
                           <div>
-                            <h4 className={`text-base font-black ${textPrimary}`}>{selectedCustomerObj.fullName || selectedCustomerObj.globalName}</h4>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-xs mt-1 inline-block font-extrabold uppercase ${selectedCustomerObj.hasLoggedIn ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+                            <h4 className={`text-base font-black ${textPrimary}`}>
+                              {selectedCustomerObj.fullName || "Geen Karakter Naam ingesteld"}
+                            </h4>
+                            <p className="text-xs text-neutral-400 font-medium">
+                              Discord: <span className="font-bold text-neutral-300">{selectedCustomerObj.globalName || selectedCustomerObj.username}</span> (@{selectedCustomerObj.username || "onbekend"})
+                            </p>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-xs mt-1.5 inline-block font-extrabold uppercase ${selectedCustomerObj.hasLoggedIn ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
                               {selectedCustomerObj.hasLoggedIn ? "Verifieerbaar: Kan bestellen" : "Geblokkeerd: Moet inloggen"}
                             </span>
                           </div>

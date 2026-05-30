@@ -29,6 +29,7 @@ export default function App() {
   const [sales, setSales] = useState<SaleRecord[]>(INITIAL_SALES);
   const [deletedCustomerIds, setDeletedCustomerIds] = useState<string[]>([]);
   const [registeredCustomers, setRegisteredCustomers] = useState<any[]>([]);
+  const [editedCustomers, setEditedCustomers] = useState<Record<string, any>>({});
 
   // Fetch the latest global dealership state from the backend (making state fully shared)
   const fetchState = () => {
@@ -43,6 +44,7 @@ export default function App() {
         if (Array.isArray(data.sales)) setSales(data.sales);
         if (Array.isArray(data.deletedCustomerIds)) setDeletedCustomerIds(data.deletedCustomerIds);
         if (Array.isArray(data.registeredCustomers)) setRegisteredCustomers(data.registeredCustomers);
+        if (data.editedCustomers) setEditedCustomers(data.editedCustomers);
       })
       .catch((err) => {
         console.warn("Mislukt om live dealership status te synchroniseren:", err);
@@ -238,6 +240,16 @@ export default function App() {
     })
       .then(() => fetchState())
       .catch((err) => console.error("Failed to sync new vehicle:", err));
+  };
+
+  const handleEditCustomerDetails = (id: string, fullName: string, bsn: string, birthDate: string) => {
+    fetch("/api/dealership/customers/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, fullName, bsn, birthDate })
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Mislukt om klantgegevens aan te passen:", err));
   };
 
   const handleEditVehicle = (updatedVehicle: Vehicle) => {
@@ -438,7 +450,9 @@ export default function App() {
               sales={sales}
               deletedCustomerIds={deletedCustomerIds}
               registeredCustomers={registeredCustomers}
+              editedCustomers={editedCustomers}
               onDeleteCustomer={handleDeleteCustomer}
+              onEditCustomerDetails={handleEditCustomerDetails}
               onStartOAuth={handleStartOAuth}
               onUpdateVehicleStock={handleUpdateVehicleStock}
               onUpdateVehiclePrice={handleUpdateVehiclePrice}

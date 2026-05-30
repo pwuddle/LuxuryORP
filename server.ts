@@ -21,6 +21,7 @@ let requests: PurchaseRequest[] = [...INITIAL_REQUESTS];
 let sales: SaleRecord[] = [...INITIAL_SALES];
 let deletedCustomerIds: string[] = [];
 let registeredCustomers: any[] = [];
+let editedCustomers: Record<string, any> = {};
 
 function loadState() {
   try {
@@ -31,6 +32,7 @@ function loadState() {
       if (Array.isArray(data.sales)) sales = data.sales;
       if (Array.isArray(data.deletedCustomerIds)) deletedCustomerIds = data.deletedCustomerIds;
       if (Array.isArray(data.registeredCustomers)) registeredCustomers = data.registeredCustomers;
+      if (data.editedCustomers) editedCustomers = data.editedCustomers;
       console.log("Successfully loaded dealership state from persistent file.");
     } else {
       console.log("No persistent dealership state file found. Using default initial state.");
@@ -45,7 +47,7 @@ function saveState() {
   try {
     fs.writeFileSync(
       STATE_FILE_PATH,
-      JSON.stringify({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers }, null, 2),
+      JSON.stringify({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers, editedCustomers }, null, 2),
       "utf-8"
     );
   } catch (err) {
@@ -66,7 +68,7 @@ async function startServer() {
 
   // API Route: Get the current global dealership state
   app.get("/api/dealership/state", (req, res) => {
-    res.json({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers });
+    res.json({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers, editedCustomers });
   });
 
   // API Route: Add or update a vehicle in the catalog
@@ -161,11 +163,28 @@ async function startServer() {
         registrationDate: new Date().toISOString().split("T")[0],
         fullName: visitor.globalName || visitor.username
       });
-      // Also if they were deleted previously, we can remove them from deleted list
-      deletedCustomerIds = deletedCustomerIds.filter(id => id !== visitor.id);
-      saveState();
     }
+    // Always remove from deleted list if they are logging in again (meaning they are restored)
+    if (deletedCustomerIds.includes(visitor.id)) {
+      deletedCustomerIds = deletedCustomerIds.filter(id => id !== visitor.id);
+    }
+    saveState();
     res.json({ success: true, registeredCustomers, deletedCustomerIds });
+  });
+
+  // API Route: Edit customer details
+  app.post("/api/dealership/customers/edit", (req, res) => {
+    const { id, fullName, bsn, birthDate } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "ID is verplicht" });
+    }
+    editedCustomers[id] = {
+      fullName,
+      bsn,
+      birthDate
+    };
+    saveState();
+    res.json({ success: true, editedCustomers });
   });
 
   // API Route: Fetch live Discord member & online counts from public invite link
