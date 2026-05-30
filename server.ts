@@ -170,19 +170,6 @@ async function startServer() {
 
   // Core Sync to Google Sheets Function
   async function syncAllToGoogleSheets(): Promise<{ success: boolean; message: string }> {
-    // Check if we are running in the Google AI Studio Preview (workspace sandbox) vs. Live Website (Render)
-    // Render environment sets process.env.RENDER to "true"
-    const isLive = process.env.RENDER === "true" || 
-      (process.env.APP_URL && !process.env.APP_URL.includes("run.app") && !process.env.APP_URL.includes("localhost"));
-
-    if (!isLive) {
-      console.log("Google Sheets sync skipped: running in Preview/Development environment.");
-      return { 
-        success: true, 
-        message: "Synchronisatie gesimuleerd: Google Sheets koppeling is uitgeschakeld in de pre-view / testomgeving. De database wordt wel lokaal bijgehouden en synchronisaties zijn volledig actief op uw Live Website (Render)!" 
-      };
-    }
-
     if (!spreadsheetUrl) {
       return { success: false, message: "Geen Google Spreadsheet URL geconfigureerd." };
     }
@@ -339,15 +326,6 @@ async function startServer() {
   onStateChangeCallback = () => {
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
-      // Only trigger auto-sync on the live website
-      const isLive = process.env.RENDER === "true" || 
-        (process.env.APP_URL && !process.env.APP_URL.includes("run.app") && !process.env.APP_URL.includes("localhost"));
-      
-      if (!isLive) {
-        console.log("Automatic auto-sync to Google Sheets skipped (Preview/Development environment).");
-        return;
-      }
-
       if (spreadsheetUrl && googleRefreshToken) {
         console.log("Automatic auto-sync to Google Sheets triggered.");
         syncAllToGoogleSheets()
