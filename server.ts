@@ -158,6 +158,19 @@ async function startServer() {
 
   // Core Sync to Google Sheets Function
   async function syncAllToGoogleSheets(): Promise<{ success: boolean; message: string }> {
+    // Check if we are running in the Google AI Studio Preview (workspace sandbox) vs. Live Website (Render)
+    // Render environment sets process.env.RENDER to "true"
+    const isLive = process.env.RENDER === "true" || 
+      (process.env.APP_URL && !process.env.APP_URL.includes("run.app") && !process.env.APP_URL.includes("localhost"));
+
+    if (!isLive) {
+      console.log("Google Sheets sync skipped: running in Preview/Development environment.");
+      return { 
+        success: true, 
+        message: "Synchronisatie gesimuleerd: Google Sheets koppeling is uitgeschakeld in de pre-view / testomgeving. De database wordt wel lokaal bijgehouden en synchronisaties zijn volledig actief op uw Live Website (Render)!" 
+      };
+    }
+
     if (!spreadsheetUrl) {
       return { success: false, message: "Geen Google Spreadsheet URL geconfigureerd." };
     }
@@ -330,6 +343,15 @@ async function startServer() {
   onStateChangeCallback = () => {
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
+      // Only trigger auto-sync on the live website
+      const isLive = process.env.RENDER === "true" || 
+        (process.env.APP_URL && !process.env.APP_URL.includes("run.app") && !process.env.APP_URL.includes("localhost"));
+      
+      if (!isLive) {
+        console.log("Automatic auto-sync to Google Sheets skipped (Preview/Development environment).");
+        return;
+      }
+
       if (spreadsheetUrl && googleRefreshToken) {
         console.log("Automatic auto-sync to Google Sheets triggered.");
         syncAllToGoogleSheets()
@@ -768,7 +790,25 @@ async function startServer() {
       const userData = await userResponse.json();
       const userId = userData.id;
 
-      // 3. Query the Discord API to check if they are in the Server and have the appropriate Role
+      // Fetch roles list early from the Discord bot API to support matching clean role IDs OR role NAMES
+      let discordRoles: any[] = [];
+      try {
+        const rolesResponse = await fetch(`https://discord.com/api/guilds/${guildId}/roles`, {
+          headers: {
+            Authorization: `Bot ${botToken}`,
+          },
+        });
+        if (rolesResponse.ok) {
+          const fetchedRoles = await rolesResponse.json();
+          if (Array.isArray(fetchedRoles)) {
+            discordRoles = fetchedRoles;
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch guild roles details early:", err);
+      }
+
+      // Query the Discord API to check if they are in the Server and have the appropriate Role
       const memberResponse = await fetch(`https://discord.com/api/guilds/${guildId}/members/${userId}`, {
         headers: {
           Authorization: `Bot ${botToken}`,
@@ -786,17 +826,42 @@ async function startServer() {
       let hasOwnerRole = false;
       let memberRoles: string[] = [];
       let discordMemberData: any = null;
-      let discordRoles: any[] = [];
       let errorBody = "";
 
       if (memberResponse.ok) {
         discordMemberData = await memberResponse.json();
         memberRoles = discordMemberData.roles || [];
 
-        hasStaffRole = staffRoleId ? memberRoles.includes(staffRoleId) : false;
-        hasManagerRole = managerRoleId ? memberRoles.includes(managerRoleId) : false;
-        hasOwnerRole = ownerRoleId ? memberRoles.includes(ownerRoleId) : false;
-        hasCustomerRole = customerRoleId ? memberRoles.includes(customerRoleId) : true;
+        // Dynamic helper to match roles by ID, clean string ID, or role NAME (case-insensitive, trims @ prefix)
+        const checkRoleValue = (configValue: string) => {
+          if (!configValue) return false;
+          
+          const cleanConfig = configValue.replace(/^@/, "").trim().toLowerCase();
+          if (!cleanConfig) return false;
+
+          // 1. Direct ID match
+          if (memberRoles.includes(configValue)) return true;
+
+          // 2. Clean ID match
+          if (memberRoles.includes(cleanConfig)) return true;
+
+          // 3. Name match through fetched server roles
+          const matchingRole = discordRoles.find((r: any) => {
+            const cleanName = r.name.replace(/^@/, "").trim().toLowerCase();
+            return cleanName === cleanConfig;
+          });
+
+          if (matchingRole && memberRoles.includes(matchingRole.id)) {
+            return true;
+          }
+
+          return false;
+        };
+
+        hasStaffRole = checkRoleValue(staffRoleId);
+        hasManagerRole = checkRoleValue(managerRoleId);
+        hasOwnerRole = checkRoleValue(ownerRoleId);
+        hasCustomerRole = customerRoleId ? checkRoleValue(customerRoleId) : true;
       } else {
         errorBody = await memberResponse.text();
         console.warn("Could not fetch guild member details:", errorBody);
@@ -818,45 +883,37 @@ async function startServer() {
         hasRole = true;
       }
 
-      // Fetch actual Discord roles to get role names (non-blocking, fallback gracefully)
+      // Resolve actual Discord role name for the app UI
       let discordRoleName = "";
       if (hasRole && memberResponse.ok) {
-        try {
-          const rolesResponse = await fetch(`https://discord.com/api/guilds/${guildId}/roles`, {
-            headers: {
-              Authorization: `Bot ${botToken}`,
-            },
+        if (hasOwnerRole) {
+          const matchedRole = discordRoles.find((r: any) => {
+            if (ownerRoleId && r.id === ownerRoleId) return true;
+            const cleanConfig = ownerRoleId ? ownerRoleId.replace(/^@/, "").trim().toLowerCase() : "";
+            return cleanConfig && r.name.replace(/^@/, "").trim().toLowerCase() === cleanConfig;
           });
-          if (rolesResponse.ok) {
-            const fetchedRoles = await rolesResponse.json();
-            if (Array.isArray(fetchedRoles)) {
-              discordRoles = fetchedRoles;
-              // Map role IDs to names
-              if (hasOwnerRole && ownerRoleId) {
-                const matchedRole = discordRoles.find((r: any) => r.id === ownerRoleId);
-                if (matchedRole) {
-                  discordRoleName = matchedRole.name;
-                }
-              } else if (hasManagerRole && managerRoleId) {
-                const matchedRole = discordRoles.find((r: any) => r.id === managerRoleId);
-                if (matchedRole) {
-                  discordRoleName = matchedRole.name;
-                }
-              } else if (hasStaffRole && staffRoleId) {
-                const matchedRole = discordRoles.find((r: any) => r.id === staffRoleId);
-                if (matchedRole) {
-                  discordRoleName = matchedRole.name;
-                }
-              } else if (hasCustomerRole && customerRoleId) {
-                const matchedRole = discordRoles.find((r: any) => r.id === customerRoleId);
-                if (matchedRole) {
-                  discordRoleName = matchedRole.name;
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.warn("Could not fetch guild roles details:", err);
+          discordRoleName = matchedRole ? matchedRole.name : "Eigenaar";
+        } else if (hasManagerRole) {
+          const matchedRole = discordRoles.find((r: any) => {
+            if (managerRoleId && r.id === managerRoleId) return true;
+            const cleanConfig = managerRoleId ? managerRoleId.replace(/^@/, "").trim().toLowerCase() : "";
+            return cleanConfig && r.name.replace(/^@/, "").trim().toLowerCase() === cleanConfig;
+          });
+          discordRoleName = matchedRole ? matchedRole.name : "Manager";
+        } else if (hasStaffRole) {
+          const matchedRole = discordRoles.find((r: any) => {
+            if (staffRoleId && r.id === staffRoleId) return true;
+            const cleanConfig = staffRoleId ? staffRoleId.replace(/^@/, "").trim().toLowerCase() : "";
+            return cleanConfig && r.name.replace(/^@/, "").trim().toLowerCase() === cleanConfig;
+          });
+          discordRoleName = matchedRole ? matchedRole.name : "Medewerker";
+        } else if (hasCustomerRole && customerRoleId) {
+          const matchedRole = discordRoles.find((r: any) => {
+            if (customerRoleId && r.id === customerRoleId) return true;
+            const cleanConfig = customerRoleId ? customerRoleId.replace(/^@/, "").trim().toLowerCase() : "";
+            return cleanConfig && r.name.replace(/^@/, "").trim().toLowerCase() === cleanConfig;
+          });
+          discordRoleName = matchedRole ? matchedRole.name : "Klant";
         }
       }
 
