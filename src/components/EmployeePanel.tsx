@@ -29,6 +29,7 @@ interface EmployeePanelProps {
   onUpdateVehicleStock: (id: string, newStock: number) => void;
   onUpdateVehiclePrice: (id: string, newPrice: number) => void;
   onAddSale: (sale: Omit<SaleRecord, "id" | "date">) => void;
+  onEditSale?: (sale: SaleRecord) => void;
   onDeleteSale: (id: string) => void;
   onUpdateRequestStatus: (id: string, status: "Goedgekeurd" | "Geweigerd") => void;
   onAddVehicle: (vehicle: Vehicle) => void;
@@ -74,6 +75,7 @@ export default function EmployeePanel({
   onUpdateVehicleStock,
   onUpdateVehiclePrice,
   onAddSale,
+  onEditSale,
   onDeleteSale,
   onUpdateRequestStatus,
   onAddVehicle,
@@ -350,6 +352,38 @@ export default function EmployeePanel({
   // Search & Selected Customer in Klantenbestand
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("123456789012345678");
+
+  // Full Sales Registration Modal States
+  const [salesModalOpen, setSalesModalOpen] = useState(false);
+  const [salesSearchKlant, setSalesSearchKlant] = useState("");
+  const [salesSearchAuto, setSalesSearchAuto] = useState("");
+  const [salesSearchPrijs, setSalesSearchPrijs] = useState("");
+  const [salesSearchStatus, setSalesSearchStatus] = useState("all");
+  
+  // Inline editing state for a single sale
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [editingSaleData, setEditingSaleData] = useState<SaleRecord | null>(null);
+  const [confirmDeleteSaleIdForModal, setConfirmDeleteSaleIdForModal] = useState<string | null>(null);
+
+  const filteredSalesForModal = useMemo(() => {
+    return sales.filter(s => {
+      const klantMatch = !salesSearchKlant || 
+        (s.buyerName && s.buyerName.toLowerCase().includes(salesSearchKlant.toLowerCase())) ||
+        (s.buyerDiscordId && s.buyerDiscordId.toLowerCase().includes(salesSearchKlant.toLowerCase()));
+        
+      const autoMatch = !salesSearchAuto || 
+        (s.vehicleName && s.vehicleName.toLowerCase().includes(salesSearchAuto.toLowerCase())) ||
+        (s.vehicleId && s.vehicleId.toLowerCase().includes(salesSearchAuto.toLowerCase()));
+        
+      const priceMatch = !salesSearchPrijs || 
+        s.pricePaid.toString().includes(salesSearchPrijs) ||
+        formatPrice(s.pricePaid).toLowerCase().includes(salesSearchPrijs.toLowerCase());
+        
+      const statusMatch = salesSearchStatus === "all" || s.status === salesSearchStatus;
+      
+      return klantMatch && autoMatch && priceMatch && statusMatch;
+    });
+  }, [sales, salesSearchKlant, salesSearchAuto, salesSearchPrijs, salesSearchStatus]);
 
   // Confirmation states for iframe security & usability
   const [confirmDeleteSaleId, setConfirmDeleteSaleId] = useState<string | null>(null);
@@ -773,7 +807,21 @@ export default function EmployeePanel({
 
               {/* Recent registered sales/purchases */}
               <div className={`lg:col-span-6 p-6 rounded-xl ${bgCard} border ${borderCard} shadow-md space-y-4`}>
-                <h3 className={`text-base font-black ${textPrimary} inline-flex items-center gap-2 border-b border-[#A87E43]/20 pb-2.5 w-full`}><Receipt className="w-5 h-5 text-[#A87E43]" /> Recente Bestellingen & Reserveringen</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#A87E43]/20 pb-2.5">
+                  <h3 
+                    onClick={() => setSalesModalOpen(true)}
+                    className={`text-base font-black ${textPrimary} inline-flex items-center gap-2 cursor-pointer hover:text-amber-400 group transition-colors`}
+                  >
+                    <Receipt className="w-5 h-5 text-[#A87E43]" /> Recente Bestellingen & Reserveringen
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setSalesModalOpen(true)}
+                    className="text-[11px] bg-[#A87E43]/10 text-amber-500 border border-[#A87E43]/30 px-3 py-1.5 rounded-md font-extrabold flex items-center gap-1 hover:bg-[#A87E43] hover:text-black transition-colors cursor-pointer shadow-xs self-start sm:self-auto"
+                  >
+                    <Search className="w-3.5 h-3.5" /> Gehele Verkoopregistratie
+                  </button>
+                </div>
                 <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-black/10 [&::-webkit-scrollbar-thumb]:bg-[#A87E43]/40 [&::-webkit-scrollbar-thumb]:rounded-md">
                   {sales.length > 0 ? (
                     sales.map(sale => {
@@ -782,7 +830,11 @@ export default function EmployeePanel({
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-extrabold text-white">{sale.buyerName}</span>
-                              <span className="text-[10px] text-gray-500 font-mono">ID: {sale.buyerDiscordId}</span>
+                              {sale.buyerDiscordId ? (
+                                <span className="text-[10px] text-gray-500 font-mono">ID: {sale.buyerDiscordId}</span>
+                              ) : (
+                                <span className="text-[9px] text-amber-500/80 bg-amber-500/5 border border-amber-500/10 px-1 rounded italic font-medium">Missend Discord ID</span>
+                              )}
                             </div>
                             <p className="text-gray-300 font-bold">{sale.vehicleName}</p>
                             <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
@@ -801,38 +853,6 @@ export default function EmployeePanel({
                             }`}>
                               {sale.status || "In Behandeling"}
                             </span>
-                            {confirmDeleteSaleId === sale.id ? (
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <span className="text-[9px] text-rose-400 font-bold">Zeker?</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (checkActionPermission()) {
-                                      onDeleteSale(sale.id);
-                                      setConfirmDeleteSaleId(null);
-                                    }
-                                  }}
-                                  className="text-[9px] bg-rose-600 hover:bg-rose-700 text-white font-black px-2 py-0.5 rounded cursor-pointer"
-                                >
-                                  Ja
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteSaleId(null)}
-                                  className="text-[9px] bg-zinc-600 hover:bg-zinc-700 text-white font-black px-2 py-0.5 rounded cursor-pointer"
-                                >
-                                  Nee
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteSaleId(sale.id)}
-                                className="text-[10px] text-rose-500 hover:text-rose-400 flex items-center gap-1.5 mt-1 cursor-pointer hover:underline"
-                              >
-                                <XCircle className="w-3.5 h-3.5" /> Verwijderen
-                              </button>
-                            )}
                           </div>
                         </div>
                       );
@@ -1858,6 +1878,316 @@ export default function EmployeePanel({
             </div>
           );
         })()}
+      </AnimatePresence>
+
+      {/* Gehele Verkoopregistratie & Beheer Modal */}
+      <AnimatePresence>
+        {salesModalOpen && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }} 
+              className={`w-full max-w-4xl p-6 rounded-xl ${isDarkMode ? "bg-[#2f3136]" : "bg-white"} border ${borderCard} space-y-6 shadow-2xl flex flex-col max-h-[90vh]`}
+            >
+              {/* Modal header */}
+              <div className="flex justify-between items-center border-b border-[#A87E43]/20 pb-4 shrink-0">
+                <div className="space-y-1">
+                  <h4 className={`text-base font-black ${textPrimary} uppercase tracking-wider flex items-center gap-1.5`}>
+                    <Receipt className="text-[#A87E43] w-5 h-5" /> Gehele Verkoopregistratie & Beheer
+                  </h4>
+                  <p className="text-[11px] text-gray-400">
+                    Weergave van <strong className="text-[#A87E43]">{filteredSalesForModal.length}</strong> van de {sales.length} geregistreerde overdrachten.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => {
+                    setSalesModalOpen(false);
+                    setEditingSaleId(null);
+                    setEditingSaleData(null);
+                    setConfirmDeleteSaleIdForModal(null);
+                  }} 
+                  className="text-gray-400 hover:text-white uppercase font-bold text-[10px] bg-black/20 hover:bg-black/40 px-3 py-1.5 rounded transition-all cursor-pointer"
+                >
+                  Sluiten
+                </button>
+              </div>
+
+              {/* Filters grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-black/15 p-4 rounded-lg shrink-0">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-400 font-extrabold uppercase">Zoek Klant</label>
+                  <input 
+                    type="text" 
+                    placeholder="Naam of Discord ID..." 
+                    value={salesSearchKlant}
+                    onChange={(e) => setSalesSearchKlant(e.target.value)}
+                    className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] text-black"}`} 
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-400 font-extrabold uppercase">Zoek Voertuig</label>
+                  <input 
+                    type="text" 
+                    placeholder="Merk of Model..." 
+                    value={salesSearchAuto}
+                    onChange={(e) => setSalesSearchAuto(e.target.value)}
+                    className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] text-black"}`} 
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-400 font-extrabold uppercase">Min. of Exacte Prijs</label>
+                  <input 
+                    type="text" 
+                    placeholder="Bijv. 15000..." 
+                    value={salesSearchPrijs}
+                    onChange={(e) => setSalesSearchPrijs(e.target.value)}
+                    className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] text-black"}`} 
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-400 font-extrabold uppercase">Verkoopstatus</label>
+                  <select
+                    value={salesSearchStatus}
+                    onChange={(e) => setSalesSearchStatus(e.target.value)}
+                    className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] text-black"}`}
+                  >
+                    <option value="all">Alle Statussen</option>
+                    <option value="Gereserveerd">Gereserveerd</option>
+                    <option value="Besteld">Besteld</option>
+                    <option value="Betaald">Betaald</option>
+                    <option value="Opgehaald">Opgehaald</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Records List Container */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[250px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-black/10 [&::-webkit-scrollbar-thumb]:bg-[#A87E43]/40 [&::-webkit-scrollbar-thumb]:rounded-md">
+                {filteredSalesForModal.length > 0 ? (
+                  filteredSalesForModal.map(sale => {
+                    const isEditing = editingSaleId === sale.id;
+                    return (
+                      <div 
+                        key={sale.id} 
+                        className={`p-4 rounded-lg border transition-all ${
+                          isEditing 
+                            ? "bg-amber-500/5 border-amber-500/30" 
+                            : isDarkMode ? "bg-black/20 border-white/5" : "bg-zinc-50 border-zinc-200"
+                        }`}
+                      >
+                        {isEditing && editingSaleData ? (
+                          /* Editing mode form layout */
+                          <div className="space-y-4 text-xs">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-dashed border-[#A87E43]/20 pb-2 gap-2">
+                              <span className="font-extrabold text-[#A87E43] uppercase tracking-wider text-[10px]">Registratie Wijzigen | Referentie: {sale.id}</span>
+                              <span className="text-[10px] text-gray-400 font-mono">Datum: {editingSaleData.date}</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase">Klant In-game Naam</label>
+                                <input 
+                                  type="text"
+                                  value={editingSaleData.buyerName}
+                                  onChange={(e) => setEditingSaleData({...editingSaleData, buyerName: e.target.value})}
+                                  className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase">Klant Discord ID</label>
+                                <input 
+                                  type="text"
+                                  value={editingSaleData.buyerDiscordId}
+                                  placeholder="Bijv. 1234..."
+                                  onChange={(e) => setEditingSaleData({...editingSaleData, buyerDiscordId: e.target.value})}
+                                  className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase">Voertuig Naam</label>
+                                <input 
+                                  type="text"
+                                  value={editingSaleData.vehicleName}
+                                  onChange={(e) => setEditingSaleData({...editingSaleData, vehicleName: e.target.value})}
+                                  className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase">Voertuig ID</label>
+                                <input 
+                                  type="text"
+                                  value={editingSaleData.vehicleId}
+                                  onChange={(e) => setEditingSaleData({...editingSaleData, vehicleId: e.target.value})}
+                                  className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase">Aankoop / Verkoopprijs (€)</label>
+                                <input 
+                                  type="number"
+                                  value={editingSaleData.pricePaid}
+                                  onChange={(e) => setEditingSaleData({...editingSaleData, pricePaid: parseFloat(e.target.value) || 0})}
+                                  className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase">Verkoper</label>
+                                <input 
+                                  type="text"
+                                  value={editingSaleData.salesperson}
+                                  onChange={(e) => setEditingSaleData({...editingSaleData, salesperson: e.target.value})}
+                                  className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-gray-400 font-bold uppercase">Verkoopstatus</label>
+                              <select
+                                value={editingSaleData.status}
+                                onChange={(e) => setEditingSaleData({...editingSaleData, status: e.target.value as any})}
+                                className={`w-full px-2.5 py-1.5 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/10 text-white" : "bg-white border-gray-300 text-[#1e1f22]"}`}
+                              >
+                                <option value="Gereserveerd">Gereserveerd</option>
+                                <option value="Besteld">Besteld</option>
+                                <option value="Betaald">Betaald</option>
+                                <option value="Opgehaald">Opgehaald</option>
+                              </select>
+                            </div>
+
+                            <div className="flex justify-end gap-2 border-t border-dashed border-white/10 pt-3">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setEditingSaleId(null);
+                                  setEditingSaleData(null);
+                                }}
+                                className="px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 font-bold rounded cursor-pointer uppercase text-[10px] text-white"
+                              >
+                                Annuleren
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  if (checkActionPermission()) {
+                                    if (onEditSale) {
+                                      onEditSale(editingSaleData);
+                                    }
+                                    setEditingSaleId(null);
+                                    setEditingSaleData(null);
+                                  }
+                                }}
+                                className="px-4 py-1.5 bg-[#A87E43] hover:bg-[#926b34] font-black rounded cursor-pointer uppercase text-[10px] text-black shadow-xs"
+                              >
+                                Wijziging Opslaan
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Normal view mode row */
+                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs">
+                            <div className="space-y-1 my-0.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={isDarkMode ? "font-extrabold text-white text-base" : "font-extrabold text-black text-base"}>{sale.buyerName}</span>
+                                {sale.buyerDiscordId ? (
+                                  <span className="text-[10px] text-gray-400 font-mono bg-black/30 px-1.5 py-0.5 rounded">ID: {sale.buyerDiscordId}</span>
+                                ) : (
+                                  <span className="text-[9px] text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Geen Discord ID</span>
+                                )}
+                                <span className="text-[10px] text-gray-500 font-mono">Ref: {sale.id}</span>
+                              </div>
+                              <p className="text-[#A87E43] font-black md:text-[13px]">{sale.vehicleName} <span className="text-xs text-gray-400 font-normal">({sale.vehicleId || "Geen Voertuig ID"})</span></p>
+                              
+                              <div className="flex items-center gap-4 text-[10px] text-gray-400 flex-wrap">
+                                <span>Verkoper: <strong className="text-zinc-300 font-bold">{sale.salesperson}</strong></span>
+                                <span className="hidden md:inline">•</span>
+                                <span>Datum: <strong className="text-zinc-300 font-bold">{sale.date}</strong></span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0 self-stretch md:self-auto justify-between md:justify-end">
+                              <div className="text-left flex flex-col items-start sm:items-end gap-1">
+                                <span className="text-amber-400 font-black font-sans text-sm">{formatPrice(sale.pricePaid)}</span>
+                                <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${
+                                  sale.status === "Opgehaald" ? "bg-green-500/10 text-green-400" :
+                                  sale.status === "Betaald" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20" :
+                                  sale.status === "Besteld" ? "bg-blue-500/15 text-blue-400" :
+                                  "bg-amber-500/15 text-amber-400"
+                                }`}>
+                                  {sale.status || "In Behandeling"}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (checkActionPermission()) {
+                                      setEditingSaleId(sale.id);
+                                      setEditingSaleData({ ...sale });
+                                    }
+                                  }}
+                                  className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 px-2.5 py-1 rounded font-bold flex items-center gap-1 cursor-pointer transition-all"
+                                >
+                                  <Edit className="w-3 h-3" /> Bewerken
+                                </button>
+
+                                {confirmDeleteSaleIdForModal === sale.id ? (
+                                  <div className="flex items-center gap-1 bg-red-500/10 border border-red-500/20 p-0.5 rounded">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (checkActionPermission()) {
+                                          onDeleteSale(sale.id);
+                                          setConfirmDeleteSaleIdForModal(null);
+                                        }
+                                      }}
+                                      className="text-[9px] bg-red-600 hover:bg-red-700 text-white font-black px-2 py-1 rounded cursor-pointer transition-colors"
+                                    >
+                                      Ja
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteSaleIdForModal(null)}
+                                      className="text-[9px] bg-neutral-600 hover:bg-neutral-700 text-white font-black px-2 py-1 rounded cursor-pointer transition-colors"
+                                    >
+                                      Nee
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={isCoordinator}
+                                    onClick={() => {
+                                      if (checkActionPermission()) {
+                                        setConfirmDeleteSaleIdForModal(sale.id);
+                                      }
+                                    }}
+                                    className={`text-[10px] px-2.5 py-1 rounded font-bold flex items-center gap-1 transition-all ${
+                                      isCoordinator 
+                                        ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700" 
+                                        : "bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 cursor-pointer"
+                                    }`}
+                                  >
+                                    <XCircle className="w-3 h-3" /> Verwijderen
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className={`text-xs ${textMuted} text-center py-12 bg-black/5 rounded-lg border border-dashed border-white/5`}>
+                    Geen verkoopregistraties gevonden die voldoen aan de zoekcriteria.
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
     </div>
   );

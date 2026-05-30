@@ -294,6 +294,18 @@ export default function App() {
     return freshSale;
   };
 
+  const handleEditSale = (updatedSale: SaleRecord) => {
+    setSales((prev) => prev.map((s) => s.id === updatedSale.id ? updatedSale : s));
+
+    fetch("/api/dealership/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedSale),
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync updated sale:", err));
+  };
+
   const handleDeleteSale = (saleId: string) => {
     setSales((prev) => prev.filter((s) => s.id !== saleId));
 
@@ -457,6 +469,7 @@ export default function App() {
               onUpdateVehicleStock={handleUpdateVehicleStock}
               onUpdateVehiclePrice={handleUpdateVehiclePrice}
               onAddSale={handleAddSale}
+              onEditSale={handleEditSale}
               onDeleteSale={handleDeleteSale}
               onUpdateRequestStatus={handleUpdateRequestStatus}
               onAddVehicle={handleAddVehicle}

@@ -633,12 +633,17 @@ async function startServer() {
               if (!idVal) {
                 // Ignore empty row
                 if (!row.join("").trim()) continue;
-                idVal = "sale_" + Math.random().toString(36).substr(2, 9);
+                idVal = "mh-s_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
               }
 
-              const buyerDiscordId = getVal("buyerDiscordId", 1);
+              const buyerDiscordId = getVal("buyerDiscordId", 1); // Left empty if missing since getVal defaults to ""
               const buyerName = getVal("buyerName", 2);
-              const vehicleId = getVal("vehicleId", 3);
+              
+              let vehicleId = getVal("vehicleId", 3);
+              if (!vehicleId) {
+                vehicleId = "mh-v_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+              }
+
               const vehicleName = getVal("vehicleName", 4);
               
               let cleanPrice = getVal("pricePaid", 5).replace(/[€$£\s]/g, "");
@@ -657,12 +662,14 @@ async function startServer() {
               const salesperson = getVal("salesperson", 7) || "Onbekend";
               
               const rawPricePaidStatus = getVal("status", 8);
-              let status: "Gereserveerd" | "Besteld" | "Betaald" | "Opgehaald" = "Gereserveerd";
-              const lStatus = rawPricePaidStatus.toLowerCase();
-              if (lStatus.includes("opgehaald") || lStatus.includes("picked")) status = "Opgehaald";
-              else if (lStatus.includes("betaald") || lStatus.includes("paid")) status = "Betaald";
-              else if (lStatus.includes("besteld") || lStatus.includes("order")) status = "Besteld";
-              else if (lStatus.includes("gereserveerd") || lStatus.includes("reserve")) status = "Gereserveerd";
+              let status: "Gereserveerd" | "Besteld" | "Betaald" | "Opgehaald" = "Betaald";
+              if (rawPricePaidStatus) {
+                const lStatus = rawPricePaidStatus.toLowerCase();
+                if (lStatus.includes("opgehaald") || lStatus.includes("picked")) status = "Opgehaald";
+                else if (lStatus.includes("betaald") || lStatus.includes("paid")) status = "Betaald";
+                else if (lStatus.includes("besteld") || lStatus.includes("order")) status = "Besteld";
+                else if (lStatus.includes("gereserveerd") || lStatus.includes("reserve")) status = "Gereserveerd";
+              }
 
               newSales.push({
                 id: idVal,
