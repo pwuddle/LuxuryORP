@@ -37,6 +37,7 @@ export interface DiscordUser {
   discordRoleName?: string;
   isManager?: boolean;
   isOwner?: boolean;
+  isCoordinator?: boolean;
 }
 
 export interface SaleRecord {

@@ -9,7 +9,7 @@ import { SafeUser } from "../App";
 import { 
   Users, Car, Landmark, ArrowRight, ShieldAlert, CheckCircle, 
   XCircle, Coins, Plus, Minus, FilePlus, Sparkles, TrendingUp, RefreshCw, Lock,
-  Edit, PlusCircle, Search, Calculator, Receipt, Phone
+  Edit, PlusCircle, Search, Calculator, Receipt, Phone, Download
 } from "lucide-react";
 import { SaleRecord, Vehicle, PurchaseRequest } from "../types";
 import SearchableSelect from "./SearchableSelect";
@@ -34,6 +34,7 @@ interface EmployeePanelProps {
   onAddVehicle: (vehicle: Vehicle) => void;
   onEditVehicle: (vehicle: Vehicle) => void;
   onDeleteVehicle: (id: string) => void;
+  onStateRefresh?: () => void;
 }
 
 const STAFF_MEMBERS = [
@@ -85,7 +86,8 @@ export default function EmployeePanel({
   onUpdateRequestStatus,
   onAddVehicle,
   onEditVehicle,
-  onDeleteVehicle
+  onDeleteVehicle,
+  onStateRefresh
 }: EmployeePanelProps) {
   // Navigation
   const [activeTab, setActiveTab] = useState<"verkoop" | "klanten" | "catalogus" | "financieel" | "administratie">("verkoop");
@@ -102,8 +104,19 @@ export default function EmployeePanel({
   const [isSyncing, setIsSyncing] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [syncResult, setSyncResult] = useState<{ text: string; error: boolean } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ text: string; error: boolean } | null>(null);
 
   const isOwner = !!user?.isOwner;
+  const isCoordinator = !!user?.isCoordinator;
+
+  const checkActionPermission = () => {
+    if (isCoordinator) {
+      alert("Als Coördinator bezit u alleen kijk-rechten. U kunt geen mutaties of acties uitvoeren.");
+      return false;
+    }
+    return true;
+  };
 
   // Fetch secure Google Sheets configuration
   useEffect(() => {
@@ -233,6 +246,35 @@ export default function EmployeePanel({
       })
       .finally(() => {
         setIsSyncing(false);
+      });
+  };
+
+  // Import / Read dataset from Google Sheets
+  const handleImportFromGoogle = () => {
+    if (!checkActionPermission()) return;
+    setIsImporting(true);
+    setImportResult(null);
+    fetch("/api/dealership/google-import", { method: "POST" })
+      .then(res => {
+        if (!res.ok) throw new Error("Fout bij inlezen");
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          setImportResult({ text: data.message, error: false });
+          if (onStateRefresh) {
+            onStateRefresh();
+          }
+        } else {
+          setImportResult({ text: data.message, error: true });
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        setImportResult({ text: "Inlezen is mislukt vanwege een serverfout. Controleer uw credentials en spreadsheet tabs.", error: true });
+      })
+      .finally(() => {
+        setIsImporting(false);
       });
   };
 
@@ -406,6 +448,7 @@ export default function EmployeePanel({
 
   const handleSaveCustomerDetails = (e: FormEvent) => {
     e.preventDefault();
+    if (!checkActionPermission()) return;
     if (!editingCustomerFields) return;
     onEditCustomerDetails(
       editingCustomerFields.id,
@@ -450,6 +493,7 @@ export default function EmployeePanel({
 
   const handleRegisterSaleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!checkActionPermission()) return;
     if (!selectedClientAndBsnId || !selectedVehicleId) {
       alert("Selecteer a.u.b. een kantoor-geverifieerde klant en een voertuig.");
       return;
@@ -497,6 +541,7 @@ export default function EmployeePanel({
 
   const handleCreateVehicleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!checkActionPermission()) return;
     if (!newBrand || !newName) {
       alert("Vul a.u.b. alle verplichte velden in.");
       return;
@@ -541,7 +586,7 @@ export default function EmployeePanel({
   const borderCard = isDarkMode ? "border-white/5" : "border-[#e3e5e8]";
 
   // Login check for medewerker
-  if (!user || user.role !== "Medewerker") {
+  if (!user || (user.role !== "Medewerker" && !user.isCoordinator)) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6">
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`p-8 rounded-xl ${bgCard} border ${borderCard} shadow-xl space-y-6`}>
@@ -618,6 +663,19 @@ export default function EmployeePanel({
           <Sparkles className="w-4 h-4" /> Live Verkoop-Omgeving
         </div>
       </div>
+
+      {isCoordinator && (
+        <div className="p-4 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-start gap-3 text-amber-500 shadow-sm animate-fade-in select-none">
+          <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="text-xs">
+            <h4 className="font-extrabold uppercase tracking-wider mb-1">Coördinator Kijk-modus Actief</h4>
+            <p className="text-amber-500/80 leading-relaxed">
+              Omdat u bent ingelogd met de <strong>Coördinator</strong> rol, bezit u alleen <strong>tijdelijke kijk-rechten</strong>. 
+              U heeft volledige lees-toegang om gegevens in te zien, maar u kunt geen nieuwe auto&apos;s toevoegen, verkopen registreren of gegevens muteren.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Sub-navigation tabs */}
       <div className={`flex flex-wrap gap-2 p-1.5 rounded-lg ${isDarkMode ? "bg-black/35" : "bg-neutral-100"}`}>
@@ -707,7 +765,17 @@ export default function EmployeePanel({
                       </div>
                     </div>
                   </div>
-                  <button type="submit" className="w-full mt-4 py-2.5 bg-[#A87E43] hover:bg-[#926b34] text-black text-xs font-black uppercase rounded-lg transition-transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-md">Bestelling Plaatsen & Registreren</button>
+                  <button 
+                    type="submit" 
+                    disabled={isCoordinator}
+                    className={`w-full mt-4 py-2.5 text-black text-xs font-black uppercase rounded-lg transition-transform ${
+                      isCoordinator 
+                        ? "bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed" 
+                        : "bg-[#A87E43] hover:bg-[#926b34] hover:-translate-y-0.5 active:translate-y-0 cursor-pointer shadow-md"
+                    } flex items-center justify-center gap-1.5`}
+                  >
+                    {isCoordinator ? "Registratie Uitgeschakeld (Kijk-modus)" : "Bestelling Plaatsen & Registreren"}
+                  </button>
                 </form>
               </div>
 
@@ -747,8 +815,10 @@ export default function EmployeePanel({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    onDeleteSale(sale.id);
-                                    setConfirmDeleteSaleId(null);
+                                    if (checkActionPermission()) {
+                                      onDeleteSale(sale.id);
+                                      setConfirmDeleteSaleId(null);
+                                    }
                                   }}
                                   className="text-[9px] bg-rose-600 hover:bg-rose-700 text-white font-black px-2 py-0.5 rounded cursor-pointer"
                                 >
@@ -926,9 +996,14 @@ export default function EmployeePanel({
                             <div className="flex gap-2">
                               <button 
                                 type="submit" 
-                                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-black text-xs font-black uppercase rounded transition-colors cursor-pointer"
+                                disabled={isCoordinator}
+                                className={`px-4 py-2 text-xs font-black uppercase rounded transition-colors ${
+                                  isCoordinator 
+                                    ? "bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed" 
+                                    : "bg-green-500 hover:bg-green-600 text-black cursor-pointer"
+                                }`}
                               >
-                                Opslaan
+                                {isCoordinator ? "Opslaan Uitgeschakeld" : "Opslaan"}
                               </button>
                               <button 
                                 type="button" 
@@ -948,9 +1023,11 @@ export default function EmployeePanel({
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      onDeleteCustomer(selectedCustomerObj.id);
-                                      setConfirmDeleteCustomerId(null);
-                                      setSelectedCustomerId("");
+                                      if (checkActionPermission()) {
+                                        onDeleteCustomer(selectedCustomerObj.id);
+                                        setConfirmDeleteCustomerId(null);
+                                        setSelectedCustomerId("");
+                                      }
                                     }}
                                     className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase rounded cursor-pointer transition-colors shadow-sm"
                                   >
@@ -977,12 +1054,16 @@ export default function EmployeePanel({
 
                             {selectedCustomerObj.hasLoggedIn ? (
                               <button 
-                                onClick={() => setEditingCustomerFields({
-                                  id: selectedCustomerObj.id,
-                                  fullName: selectedCustomerObj.fullName || "",
-                                  bsn: selectedCustomerObj.bsn || "",
-                                  birthDate: selectedCustomerObj.birthDate || ""
-                                })}
+                                onClick={() => {
+                                  if (checkActionPermission()) {
+                                    setEditingCustomerFields({
+                                      id: selectedCustomerObj.id,
+                                      fullName: selectedCustomerObj.fullName || "",
+                                      bsn: selectedCustomerObj.bsn || "",
+                                      birthDate: selectedCustomerObj.birthDate || ""
+                                    });
+                                  }
+                                }}
                                 className="px-4 py-2 bg-[#A87E43] hover:bg-[#926b34] text-black text-xs font-black uppercase rounded-lg flex items-center gap-1.5 transition-transform hover:-translate-y-0.5 cursor-pointer shadow-md"
                               >
                                 <Edit className="w-3.5 h-3.5" /> Gegevens Aanpassen
@@ -1107,7 +1188,17 @@ export default function EmployeePanel({
                     <label className="block text-gray-400 mb-1 font-bold">Beschrijving</label>
                     <textarea value={newDescription} onChange={(e)=>setNewDescription(e.target.value)} placeholder="Unieke in-character details..." rows={2} className="w-full p-2 bg-[#1e1f22] border border-white/5 rounded text-white" />
                   </div>
-                  <button type="submit" className="px-5 py-2.5 bg-green-500 hover:bg-green-600 text-black font-black uppercase rounded text-xs cursor-pointer">In Catalogus Publiceren</button>
+                  <button 
+                    type="submit" 
+                    disabled={isCoordinator}
+                    className={`px-5 py-2.5 font-black uppercase rounded text-xs transition-colors ${
+                      isCoordinator 
+                        ? "bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed" 
+                        : "bg-green-500 hover:bg-green-600 text-black cursor-pointer"
+                    }`}
+                  >
+                    {isCoordinator ? "Publiceren Uitgeschakeld (Kijk-modus)" : "In Catalogus Publiceren"}
+                  </button>
                 </form>
               )}
 
@@ -1134,15 +1225,15 @@ export default function EmployeePanel({
                       <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-between md:justify-end">
                         {/* Stock controls */}
                         <div className="flex items-center gap-1.5 bg-black/45 rounded-md px-1.5 py-1">
-                          <button type="button" onClick={() => onUpdateVehicleStock(v.id, Math.max(0, v.stock - 1))} className="p-1 hover:text-white transition-colors cursor-pointer"><Minus className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => { if (checkActionPermission()) onUpdateVehicleStock(v.id, Math.max(0, v.stock - 1)); }} className="p-1 hover:text-white transition-colors cursor-pointer"><Minus className="w-3.5 h-3.5" /></button>
                           <span className="text-xs font-black text-white min-w-[20px] text-center">{v.stock}</span>
-                          <button type="button" onClick={() => onUpdateVehicleStock(v.id, v.stock + 1)} className="p-1 hover:text-white transition-colors cursor-pointer"><Plus className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => { if (checkActionPermission()) onUpdateVehicleStock(v.id, v.stock + 1); }} className="p-1 hover:text-white transition-colors cursor-pointer"><Plus className="w-3.5 h-3.5" /></button>
                         </div>
 
                         {/* Soldout Toggle */}
                         <button
                           type="button"
-                          onClick={() => onEditVehicle({ ...v, isSoldOut: !v.isSoldOut })}
+                          onClick={() => { if (checkActionPermission()) onEditVehicle({ ...v, isSoldOut: !v.isSoldOut }); }}
                           className={`px-2 py-1 font-bold text-[9px] uppercase rounded transition-all cursor-pointer ${
                             v.isSoldOut 
                               ? 'bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30' 
@@ -1168,8 +1259,10 @@ export default function EmployeePanel({
                             <button
                               type="button"
                               onClick={() => {
-                                onDeleteVehicle(v.id);
-                                setConfirmDeleteVehicleId(null);
+                                if (checkActionPermission()) {
+                                  onDeleteVehicle(v.id);
+                                  setConfirmDeleteVehicleId(null);
+                                }
                               }}
                               className="text-[9px] bg-red-600 hover:bg-red-700 text-white font-black px-1.5 py-0.5 rounded cursor-pointer"
                             >
@@ -1224,8 +1317,10 @@ export default function EmployeePanel({
                       <form
                         onSubmit={(e) => {
                           e.preventDefault();
-                          onEditVehicle(editingVehicle);
-                          setEditingVehicle(null);
+                          if (checkActionPermission()) {
+                            onEditVehicle(editingVehicle);
+                            setEditingVehicle(null);
+                          }
                         }}
                         className="space-y-4 text-xs"
                       >
@@ -1365,9 +1460,14 @@ export default function EmployeePanel({
                           </button>
                           <button
                             type="submit"
-                            className="px-5 py-2 bg-[#A87E43] hover:bg-[#926b34] text-black font-black uppercase rounded"
+                            disabled={isCoordinator}
+                            className={`px-5 py-2 font-black uppercase rounded ${
+                              isCoordinator
+                                ? "bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed"
+                                : "bg-[#A87E43] hover:bg-[#926b34] text-black cursor-pointer"
+                            }`}
                           >
-                            Wijzigingen opslaan
+                            {isCoordinator ? "Opslaan Uitgeschakeld" : "Wijzigingen opslaan"}
                           </button>
                         </div>
                       </form>
@@ -1381,7 +1481,7 @@ export default function EmployeePanel({
           {/* 4. FINANCIEEL BEHEER */}
           {activeTab === "financieel" && (
             <div className="space-y-6 relative overflow-hidden">
-              {!isManagerOrOwner && (
+              {!(isManagerOrOwner || isCoordinator) && (
                 <div className="absolute inset-0 bg-[#1e1f22]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
                   <Lock className="w-12 h-12 text-[#A87E43] bg-[#A87E43]/15 p-2.5 rounded-full" />
                   <div>
@@ -1463,7 +1563,19 @@ export default function EmployeePanel({
                       <span>Provisie Tarief (Verkoop Commissie):</span>
                       <span className="text-[#A87E43]">{commissionRate}% van de nettowinst (verkoop - inkoop)</span>
                     </div>
-                    <input type="range" min="1" max="25" value={commissionRate} onChange={(e) => setCommissionRate(Number(e.target.value))} className="w-full text-[#A87E43] rounded cursor-pointer accent-[#A87E43]" />
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="25" 
+                      value={commissionRate} 
+                      disabled={isCoordinator}
+                      onChange={(e) => {
+                        if (checkActionPermission()) {
+                          setCommissionRate(Number(e.target.value));
+                        }
+                      }} 
+                      className={`w-full text-[#A87E43] rounded accent-[#A87E43] ${isCoordinator ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`} 
+                    />
                     <span className="text-[10px] text-gray-500 block leading-normal mt-1">
                       Medewerkers ontvangen geen vaste basisvergoeding, maar uitsluitend commissie over de winst van de door hen succesvol afgehandelde autoverkopen (Status: Betaald/Opgehaald).
                     </span>
@@ -1545,7 +1657,7 @@ export default function EmployeePanel({
                         required
                       />
                       <p className="text-[10px] text-gray-500">
-                        De link van uw spreadsheet dat gebruikt zal worden voor gegevensopslag (tabs &quot;Catalogus&quot;, &quot;Klanten&quot;, &quot;Verkopen&quot;, &quot;Aanvragen&quot; worden automatisch aangemaakt).
+                        De link van uw spreadsheet dat gebruikt zal worden voor gegevensopslag (tabs &quot;Catalogus&quot;, &quot;Klanten&quot;, &quot;Verkopen&quot; worden automatisch aangemaakt).
                       </p>
                     </div>
 
@@ -1644,7 +1756,17 @@ export default function EmployeePanel({
                               className="w-full py-2 bg-green-500/20 hover:bg-green-500 hover:text-black text-green-400 border border-green-500/40 font-extrabold uppercase rounded shadow transition-all cursor-pointer text-[10px] flex items-center justify-center gap-1"
                             >
                               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                              {isSyncing ? "Synchroniseren..." : "Forceer Handmatige Sync"}
+                              {isSyncing ? "Synchroniseren..." : "Exporteren naar Spreadsheet"}
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={handleImportFromGoogle}
+                              disabled={isImporting}
+                              className="w-full py-2 bg-[#A87E43]/20 hover:bg-[#A87E43] hover:text-black text-[#A87E43] border border-[#A87E43]/40 font-extrabold uppercase rounded shadow transition-all cursor-pointer text-[10px] flex items-center justify-center gap-1"
+                            >
+                              <Download className={`w-3.5 h-3.5 ${isImporting ? 'animate-spin' : ''}`} />
+                              {isImporting ? "Inlezen..." : "Inlezen / Importeer uit Spreadsheet"}
                             </button>
 
                             <button 
@@ -1661,6 +1783,12 @@ export default function EmployeePanel({
                       {syncResult && (
                         <div className={`p-2.5 text-[10px] font-bold rounded ${syncResult.error ? "bg-red-500/15 border border-red-500/30 text-red-400" : "bg-green-500/15 border border-green-500/30 text-green-400"}`}>
                           {syncResult.text}
+                        </div>
+                      )}
+
+                      {importResult && (
+                        <div className={`p-2.5 text-[10px] font-bold rounded ${importResult.error ? "bg-red-500/15 border border-red-500/30 text-red-400" : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-400"}`}>
+                          {importResult.text}
                         </div>
                       )}
                     </div>

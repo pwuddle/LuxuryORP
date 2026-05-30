@@ -106,7 +106,7 @@ export default function App() {
         
         // Routely navigate to appropriate pane based on requested pane
         if (requestedPane === "medewerkerpaneel") {
-          if (loggedInUser.role === "Medewerker" || loggedInUser.isManager || loggedInUser.isOwner) {
+          if (loggedInUser.role === "Medewerker" || loggedInUser.isManager || loggedInUser.isOwner || loggedInUser.isCoordinator) {
             setActivePage(ActivePage.Medewerkerpaneel);
           } else {
             setActivePage(ActivePage.Klantenpaneel);
@@ -189,7 +189,7 @@ export default function App() {
     
     // Auto-navigate based on requested pane
     if (requestedPane === "medewerkerpaneel") {
-      if (simulatedUser.role === "Medewerker" || simulatedUser.isManager || simulatedUser.isOwner) {
+      if (simulatedUser.role === "Medewerker" || simulatedUser.isManager || simulatedUser.isOwner || simulatedUser.isCoordinator) {
         setActivePage(ActivePage.Medewerkerpaneel);
       } else {
         setActivePage(ActivePage.Klantenpaneel);
@@ -462,6 +462,7 @@ export default function App() {
               onAddVehicle={handleAddVehicle}
               onEditVehicle={handleEditVehicle}
               onDeleteVehicle={handleDeleteVehicle}
+              onStateRefresh={fetchState}
             />
           )}
         </AnimatePresence>

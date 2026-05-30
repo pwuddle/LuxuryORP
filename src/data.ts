@@ -168,6 +168,16 @@ export const SIMULATED_USERS = {
     isManager: true,
     isOwner: true,
   },
+  coordinator: {
+    id: "334455667788990011",
+    username: "Perseus_Coordinator",
+    globalName: "Sophie | Perseus Coördinator",
+    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=150&auto=format&fit=crop",
+    role: "Klant" as const,
+    guildMember: true,
+    discordRoleName: "Coördinator",
+    isCoordinator: true,
+  },
   invalid: {
     id: "456123789045612378",
     username: "GTA_GamerPro",
@@ -257,38 +267,4 @@ export const INITIAL_SALES: SaleRecord[] = [
   },
 ];
 
-export const INITIAL_REQUESTS: PurchaseRequest[] = [
-  {
-    id: "r1",
-    vehicleId: "v1",
-    vehicleName: "Grotti Turismo S",
-    buyerDiscordId: "123456789012345678",
-    buyerName: "Davey Santos",
-    buyerAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=150&auto=format&fit=crop",
-    status: "In Behandeling",
-    date: "2026-05-28",
-    paymentType: "In-game Dollars",
-  },
-  {
-    id: "r2",
-    vehicleId: "v5",
-    vehicleName: "Albany Hermes Classic",
-    buyerDiscordId: "111111111111111111",
-    buyerName: "Jimmy De Santa",
-    buyerAvatar: null,
-    status: "Goedgekeurd",
-    date: "2026-05-26",
-    paymentType: "Financiering",
-  },
-  {
-    id: "r3",
-    vehicleId: "v7",
-    vehicleName: "Benefactor LM87",
-    buyerDiscordId: "222222222222222222",
-    buyerName: "Trevor Philips",
-    buyerAvatar: null,
-    status: "Geweigerd",
-    date: "2026-05-25",
-    paymentType: "In-game Dollars",
-  },
-];
+export const INITIAL_REQUESTS: PurchaseRequest[] = [];

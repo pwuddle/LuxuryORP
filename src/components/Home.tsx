@@ -98,11 +98,11 @@ export default function Home({ isDarkMode, onNavigate, onStartOAuth, user }: Hom
               </button>
             ) : (
               <button
-                onClick={() => onNavigate(user.role === "Medewerker" ? ActivePage.Medewerkerpaneel : ActivePage.Klantenpaneel)}
+                onClick={() => onNavigate((user.role === "Medewerker" || user.isCoordinator) ? ActivePage.Medewerkerpaneel : ActivePage.Klantenpaneel)}
                 className="px-6 py-3 bg-[#43b581] hover:bg-[#3ca374] text-white font-bold rounded-lg transition-all transform hover:-translate-y-0.5 active:translate-y-0 shadow-lg flex items-center gap-2"
                 id="hero-panel-btn"
               >
-                Naar Jouw Paneel ({user.role})
+                Naar Jouw Paneel ({user.isCoordinator ? "Coördinator" : user.role})
               </button>
             )}
           </div>

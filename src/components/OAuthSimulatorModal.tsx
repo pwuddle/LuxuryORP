@@ -26,7 +26,7 @@ export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const handleSimulate = (userType: "klant" | "medewerker" | "manager" | "eigenaar" | "invalid") => {
+  const handleSimulate = (userType: "klant" | "medewerker" | "manager" | "eigenaar" | "coordinator" | "invalid") => {
     const selectedUser = SIMULATED_USERS[userType];
     onSuccess(selectedUser);
   };
@@ -246,6 +246,46 @@ export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel
                   <ShieldCheck className="w-3.5 h-3.5" /> Eigenaar Rechten
                 </span>
                 <span className="text-[10px] text-[#8e9297] mt-0.5">Alle Rechten & Beheer</span>
+              </div>
+            </div>
+
+            {/* option 2d: Coordinator */}
+            <div
+              className={`p-4 bg-[#202225] hover:bg-[#35393e] border border-[#202225] hover:border-[#A87E43]/40 rounded-lg cursor-pointer transition-all flex items-center justify-between group ${
+                requestedPanel === "medewerkerpaneel" ? "ring-1 ring-[#A87E43]/40" : ""
+              }`}
+              onClick={() => handleSimulate("coordinator")}
+              id="sim-profile-coordinator"
+            >
+              <div className="flex items-center gap-3">
+                <img
+                  src={SIMULATED_USERS.coordinator.avatar}
+                  alt="Coördinator avatar"
+                  className="w-11 h-11 rounded-full bg-cover border border-[#40444b]"
+                  referrerPolicy="no-referrer"
+                />
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-white group-hover:text-[#A87E43] transition-colors">
+                      {SIMULATED_USERS.coordinator.globalName}
+                    </span>
+                    <span className="text-xs text-[#8e9297]">@{SIMULATED_USERS.coordinator.username}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-green-500/10 text-green-400 rounded-sm">
+                      Serverlid
+                    </span>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-[#A87E43]/15 text-[#A87E43] rounded-sm">
+                      Coördinator-Rol (Lees-rechten)
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right flex flex-col items-end">
+                <span className="inline-flex items-center gap-1 text-xs text-[#A87E43] font-medium">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Kijk Toegang
+                </span>
+                <span className="text-[10px] text-[#8e9297] mt-0.5">Medewerkerpaneel Meekijken</span>
               </div>
             </div>
 

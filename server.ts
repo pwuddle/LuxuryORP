@@ -94,7 +94,19 @@ loadState();
 
 async function startServer() {
   const app = express();
+  app.enable("trust proxy");
   const PORT = 3000;
+
+  // Helper to extract clean secure host for redirects (e.g. enforce https for OAuth on non-localhost)
+  function getRequestHost(req: express.Request): string {
+    if (process.env.APP_URL) {
+      return process.env.APP_URL.replace(/\/$/, "");
+    }
+    const rawHost = req.get("host") || "";
+    const isLocal = rawHost.includes("localhost") || rawHost.includes("127.0.0.1");
+    const protocol = isLocal ? req.protocol : "https";
+    return `${protocol}://${rawHost}`;
+  }
 
   // JSON and URL-encoded body parsers
   app.use(express.json());
@@ -204,7 +216,7 @@ async function startServer() {
       const sheetTitles: string[] = metadata.sheets?.map((s: any) => s.properties.title) || [];
 
       // Required tabs
-      const requiredTabs = ["Catalogus", "Klanten", "Verkopen", "Aanvragen"];
+      const requiredTabs = ["Catalogus", "Klanten", "Verkopen"];
       const missingTabs = requiredTabs.filter(tab => !sheetTitles.includes(tab));
 
       if (missingTabs.length > 0) {
@@ -279,27 +291,11 @@ async function startServer() {
         ])
       ];
 
-      // Tab: Aanvragen
-      const reqsData = [
-        ["Aanvraag ID", "Voertuig ID", "Voertuig Naam", "Klant Discord ID", "Klant Naam", "Betaalmethode", "Datum", "Status"],
-        ...requests.map(r => [
-          r.id,
-          r.vehicleId,
-          r.vehicleName,
-          r.buyerDiscordId,
-          r.buyerName,
-          r.paymentType,
-          r.date,
-          r.status
-        ])
-      ];
-
       // 3. Sync each tab by clearing and writing
       const dataToSync = [
         { title: "Catalogus", rows: catalogData },
         { title: "Klanten", rows: customersData },
-        { title: "Verkopen", rows: salesData },
-        { title: "Aanvragen", rows: reqsData }
+        { title: "Verkopen", rows: salesData }
       ];
 
       for (const item of dataToSync) {
@@ -403,7 +399,7 @@ async function startServer() {
     if (!googleClientId) {
       return res.status(400).send("Fout: Google Client ID is niet geconfigureerd in Website Administratie.");
     }
-    const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const host = getRequestHost(req);
     const redirectUri = `${host}/api/dealership/google-auth-callback`;
     
     const params = new URLSearchParams({
@@ -430,7 +426,7 @@ async function startServer() {
     }
 
     try {
-      const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+      const host = getRequestHost(req);
       const redirectUri = `${host}/api/dealership/google-auth-callback`;
 
       const tokenUrl = "https://oauth2.googleapis.com/token";
@@ -541,6 +537,367 @@ async function startServer() {
   app.post("/api/dealership/google-sync", async (req, res) => {
     const result = await syncAllToGoogleSheets();
     res.json(result);
+  });
+
+  // Google Sheets manual import from Spreadsheet logic
+  app.post("/api/dealership/google-import", async (req, res) => {
+    if (!spreadsheetUrl) {
+      return res.json({ success: false, message: "Geen Google Spreadsheet URL geconfigureerd in Website Administratie." });
+    }
+
+    const spreadsheetId = getSpreadsheetId(spreadsheetUrl);
+    if (!spreadsheetId) {
+      return res.json({ success: false, message: "Ongeldige Google Spreadsheet URL. Kon de ID niet extraheren." });
+    }
+
+    const token = await refreshGoogleAccessToken();
+    if (!token) {
+      return res.json({ success: false, message: "Server is niet verbonden met Google. Koppel eerst uw Google Account via Website Administratie." });
+    }
+
+    try {
+      // Fetch sheet details to see which tabs exist
+      const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
+      const metaRes = await fetch(metadataUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!metaRes.ok) {
+        if (metaRes.status === 401 || metaRes.status === 403) {
+          return res.json({ success: false, message: "Geen toegang tot spreadsheet. Uw Google Account koppeling is mogelijk verlopen. Koppel deze opnieuw." });
+        }
+        const errorDetail = await metaRes.text();
+        throw new Error(`Google API fout: ${errorDetail}`);
+      }
+
+      const metadata = await metaRes.json();
+      const sheetTitles: string[] = metadata.sheets?.map((s: any) => s.properties.title) || [];
+
+      let importedCatalogCount = 0;
+      let importedCustomersCount = 0;
+      let importedSalesCount = 0;
+
+      // 1. IMPORT CATALOGUS (VEHICLES)
+      if (sheetTitles.includes("Catalogus")) {
+        const catUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Catalogus'!A1:Z5000`;
+        const catRes = await fetch(catUrl, { headers: { Authorization: `Bearer ${token}` } });
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          const rows = catData.values || [];
+          if (rows.length > 1) {
+            // Find columns dynamically by matching headers mapping
+            const headerRow = rows[0] || [];
+            const colMap: Record<string, number> = {
+              id: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("id")),
+              brandName: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("merk") || h.toLowerCase().includes("naam") || h.toLowerCase().includes("model"))),
+              category: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("cat")),
+              purchasePrice: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("inkoop")),
+              price: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("verkoop") || h.toLowerCase().includes("prijs"))),
+              stock: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("voorraad")),
+              speedStock: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("stock")), // speed stock
+              speedTuned: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("tuned")), // speed tuned
+              plekken: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("plek") || h.toLowerCase().includes("inzittenden"))),
+              status: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("status") || h.toLowerCase().includes("uitverkocht"))),
+              description: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("omschrijving") || h.toLowerCase().includes("beschrijving")))
+            };
+
+            const newVehicles: Vehicle[] = [];
+
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+
+              const getVal = (colKey: string, defIdx: number) => {
+                const idx = colMap[colKey] !== -1 ? colMap[colKey] : defIdx;
+                return row[idx] !== undefined ? String(row[idx]).trim() : "";
+              };
+
+              // Make sure we have an ID or generate a unique random one if it's draft row
+              let idVal = getVal("id", 0);
+              if (!idVal) {
+                // If it's a completely empty row, ignore it
+                const lineContent = row.join("").trim();
+                if (!lineContent) continue;
+                idVal = "v_" + Math.random().toString(36).substr(2, 9);
+              }
+
+              const brandName = getVal("brandName", 1);
+              if (!brandName) continue; // Skip if vehicle has no name
+
+              let brand = "Overige";
+              let name = brandName;
+              if (brandName.includes(" ")) {
+                const spaceIdx = brandName.indexOf(" ");
+                brand = brandName.substring(0, spaceIdx).trim();
+                name = brandName.substring(spaceIdx + 1).trim();
+              }
+
+              // category filter
+              const rawCat = getVal("category", 2);
+              let category: "Super" | "Sports" | "SUV/Off-Road" | "Classic" | "Overige" = "Overige";
+              const lCat = rawCat.toLowerCase();
+              if (lCat.includes("super")) category = "Super";
+              else if (lCat.includes("sport")) category = "Sports";
+              else if (lCat.includes("suv") || lCat.includes("off-road") || lCat.includes("terrein") || lCat.includes("road")) category = "SUV/Off-Road";
+              else if (lCat.includes("classic") || lCat.includes("klassiek")) category = "Classic";
+
+              // Clean prices helper to remove euros, currency symbols, and commas
+              const cleanNumberStr = (str: string) => {
+                let clean = str.replace(/[€$£\s]/g, "");
+                if (clean.includes(",") && clean.includes(".")) {
+                  clean = clean.replace(/,/g, "");
+                } else if (clean.includes(",")) {
+                  if (clean.split(",")[1]?.length === 3) {
+                    clean = clean.replace(/,/g, "");
+                  } else {
+                    clean = clean.replace(/,/g, ".");
+                  }
+                }
+                return clean;
+              };
+
+              const rawPurchasePrice = cleanNumberStr(getVal("purchasePrice", 3));
+              const purchasePrice = parseFloat(rawPurchasePrice) || 0;
+
+              const rawPrice = cleanNumberStr(getVal("price", 4));
+              const price = parseFloat(rawPrice) || 0;
+
+              const stock = parseInt(getVal("stock", 5).replace(/[^0-9-]/g, "")) || 0;
+              const topSpeedStock = parseInt(getVal("speedStock", 6).replace(/[^0-9]/g, "")) || 0;
+              const topSpeedTuned = parseInt(getVal("speedTuned", 7).replace(/[^0-9]/g, "")) || 0;
+              const inzittenden = parseInt(getVal("plekken", 8).replace(/[^0-9]/g, "")) || 2;
+
+              const statusStr = getVal("status", 9).toUpperCase();
+              const isSoldOut = statusStr === "JA" || statusStr === "TRUE" || statusStr === "YES" || statusStr === "UITVERKOCHT";
+
+              const description = getVal("description", 10);
+              
+              // Find existing vehicle to preserve image or properties
+              const existingVehicle = vehicles.find(v => v.id === idVal);
+              const image = existingVehicle?.image || `https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800`;
+              const featured = existingVehicle?.featured || false;
+
+              newVehicles.push({
+                id: idVal,
+                brand,
+                name,
+                category,
+                purchasePrice,
+                price,
+                stock,
+                topSpeedStock,
+                topSpeedTuned,
+                inzittenden,
+                isSoldOut,
+                description,
+                image,
+                featured
+              });
+            }
+
+            if (newVehicles.length > 0) {
+              // Merge: replace existing or append new
+              for (const nv of newVehicles) {
+                const idx = vehicles.findIndex(v => v.id === nv.id);
+                if (idx !== -1) {
+                  vehicles[idx] = nv;
+                } else {
+                  vehicles.push(nv);
+                }
+              }
+              importedCatalogCount = newVehicles.length;
+            }
+          }
+        }
+      }
+
+      // 2. IMPORT KLANTEN (CUSTOMERS)
+      if (sheetTitles.includes("Klanten")) {
+        const kUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Klanten'!A1:Z5000`;
+        const kRes = await fetch(kUrl, { headers: { Authorization: `Bearer ${token}` } });
+        if (kRes.ok) {
+          const kData = await kRes.json();
+          const rows = kData.values || [];
+          if (rows.length > 1) {
+            const headerRow = rows[0] || [];
+            const colMap: Record<string, number> = {
+              id: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("id")),
+              discordName: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("naam")),
+              fullName: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("in-game")),
+              bsn: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("bsn")),
+              birthDate: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("geboorte")),
+              regDate: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("registratie"))
+            };
+
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+
+              const getVal = (colKey: string, defIdx: number) => {
+                const idx = colMap[colKey] !== -1 ? colMap[colKey] : defIdx;
+                return row[idx] !== undefined ? String(row[idx]).trim() : "";
+              };
+
+              const idVal = getVal("id", 0);
+              if (!idVal || idVal === "-") continue;
+
+              const discordName = getVal("discordName", 1);
+              const fullName = getVal("fullName", 2);
+              const bsn = getVal("bsn", 3);
+              const birthDate = getVal("birthDate", 4);
+              const regDate = getVal("regDate", 5);
+
+              // Update edited customers metadata
+              editedCustomers[idVal] = {
+                id: idVal,
+                fullName: fullName !== "-" ? fullName : "",
+                bsn: bsn !== "-" ? bsn : "",
+                birthDate: birthDate !== "-" ? birthDate : ""
+              };
+
+              // Ensure registered customers array contains this user
+              const extCust = registeredCustomers.find(c => c.id === idVal);
+              if (!extCust) {
+                registeredCustomers.push({
+                  id: idVal,
+                  username: discordName.toLowerCase().replace(/\s+/g, ""),
+                  globalName: discordName !== "-" ? discordName : `DiscordKlant_${idVal.substring(0,4)}`,
+                  avatar: null,
+                  role: "Klant",
+                  hasLoggedIn: true,
+                  registrationDate: regDate !== "-" ? regDate : new Date().toLocaleDateString("nl-NL")
+                });
+              } else {
+                if (discordName && discordName !== "-") {
+                  extCust.globalName = discordName;
+                }
+              }
+              importedCustomersCount++;
+            }
+          }
+        }
+      }
+
+      // 3. IMPORT VERKOPEN (SALES)
+      if (sheetTitles.includes("Verkopen")) {
+        const sUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Verkopen'!A1:Z5000`;
+        const sRes = await fetch(sUrl, { headers: { Authorization: `Bearer ${token}` } });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          const rows = sData.values || [];
+          if (rows.length > 1) {
+            const headerRow = rows[0] || [];
+            const colMap: Record<string, number> = {
+              id: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("referentie")),
+              buyerDiscordId: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("klant discord id")),
+              buyerName: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("klant naam")),
+              vehicleId: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("voertuig id")),
+              vehicleName: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("voertuig naam")),
+              pricePaid: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("prijs")),
+              date: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("datum")),
+              salesperson: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("verkoper")),
+              status: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("status"))
+            };
+
+            const newSales: SaleRecord[] = [];
+
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+
+              const getVal = (colKey: string, defIdx: number) => {
+                const idx = colMap[colKey] !== -1 ? colMap[colKey] : defIdx;
+                return row[idx] !== undefined ? String(row[idx]).trim() : "";
+              };
+
+              let idVal = getVal("id", 0);
+              if (!idVal) {
+                // Ignore empty row
+                if (!row.join("").trim()) continue;
+                idVal = "sale_" + Math.random().toString(36).substr(2, 9);
+              }
+
+              const buyerDiscordId = getVal("buyerDiscordId", 1);
+              const buyerName = getVal("buyerName", 2);
+              const vehicleId = getVal("vehicleId", 3);
+              const vehicleName = getVal("vehicleName", 4);
+              
+              let cleanPrice = getVal("pricePaid", 5).replace(/[€$£\s]/g, "");
+              if (cleanPrice.includes(",") && cleanPrice.includes(".")) {
+                cleanPrice = cleanPrice.replace(/,/g, "");
+              } else if (cleanPrice.includes(",")) {
+                if (cleanPrice.split(",")[1]?.length === 3) {
+                  cleanPrice = cleanPrice.replace(/,/g, "");
+                } else {
+                  cleanPrice = cleanPrice.replace(/,/g, ".");
+                }
+              }
+              const pricePaid = parseFloat(cleanPrice) || 0;
+
+              const date = getVal("date", 6) || new Date().toLocaleDateString("nl-NL");
+              const salesperson = getVal("salesperson", 7) || "Onbekend";
+              
+              const rawPricePaidStatus = getVal("status", 8);
+              let status: "Gereserveerd" | "Besteld" | "Betaald" | "Opgehaald" = "Gereserveerd";
+              const lStatus = rawPricePaidStatus.toLowerCase();
+              if (lStatus.includes("opgehaald") || lStatus.includes("picked")) status = "Opgehaald";
+              else if (lStatus.includes("betaald") || lStatus.includes("paid")) status = "Betaald";
+              else if (lStatus.includes("besteld") || lStatus.includes("order")) status = "Besteld";
+              else if (lStatus.includes("gereserveerd") || lStatus.includes("reserve")) status = "Gereserveerd";
+
+              newSales.push({
+                id: idVal,
+                buyerDiscordId,
+                buyerName,
+                vehicleId,
+                vehicleName,
+                pricePaid,
+                date,
+                salesperson,
+                status
+              });
+            }
+
+            if (newSales.length > 0) {
+              for (const ns of newSales) {
+                const idx = sales.findIndex(s => s.id === ns.id);
+                if (idx !== -1) {
+                  sales[idx] = ns;
+                } else {
+                  sales.push(ns);
+                }
+              }
+              importedSalesCount = newSales.length;
+            }
+          }
+        }
+      }
+
+      saveState();
+
+      let summary = "Gegevens succesvol geïmporteerd!";
+      const details = [];
+      if (importedCatalogCount > 0) details.push(`${importedCatalogCount} catalogus voertuigen`);
+      if (importedCustomersCount > 0) details.push(`${importedCustomersCount} klanten`);
+      if (importedSalesCount > 0) details.push(`${importedSalesCount} verkopen`);
+      
+      if (details.length > 0) {
+        summary += ` Er zijn: ${details.join(", ")} succesvol verwerkt en gesynchroniseerd met de lokale database.`;
+      } else {
+        summary = "Koppeling succesvol tot stand gebracht, maar er werden geen bruikbare rijen gevonden in de tabbladen 'Catalogus', 'Klanten' of 'Verkopen'.";
+      }
+
+      return res.json({
+        success: true,
+        message: summary,
+        importedCatalogCount,
+        importedCustomersCount,
+        importedSalesCount
+      });
+    } catch (error: any) {
+      console.error("Google sheets import error:", error);
+      return res.json({ success: false, message: `Handmatige import mislukt: ${error.message}` });
+    }
   });
 
   // API Route: Add or update a vehicle in the catalog
@@ -709,8 +1066,8 @@ async function startServer() {
     }
 
     // Standard redirect callback URL
-    // Use the supplied APP_URL or dynamically construct context
-    const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    // Use the secure getRequestHost helper
+    const host = getRequestHost(req);
     const redirectUri = `${host}/auth/callback`;
 
     // Construct authorization URL
@@ -749,7 +1106,7 @@ async function startServer() {
     const guildId = rawGuildId;
 
     try {
-      const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+      const host = getRequestHost(req);
       const redirectUri = `${host}/auth/callback`;
 
       // 1. Exchange the temporary code for an Access Token
@@ -819,11 +1176,13 @@ async function startServer() {
       const customerRoleId = (process.env.DISCORD_CUSTOMER_ROLE_ID || "").trim();
       const managerRoleId = (process.env.DISCORD_MANAGER_ROLE_ID || "").trim();
       const ownerRoleId = (process.env.DISCORD_OWNER_ROLE_ID || "").trim();
+      const coordinatorRoleId = (process.env.DISCORD_COORDINATOR_ROLE_ID || "").trim();
 
       let hasStaffRole = false;
       let hasCustomerRole = false;
       let hasManagerRole = false;
       let hasOwnerRole = false;
+      let hasCoordinatorRole = false;
       let memberRoles: string[] = [];
       let discordMemberData: any = null;
       let errorBody = "";
@@ -861,6 +1220,7 @@ async function startServer() {
         hasStaffRole = checkRoleValue(staffRoleId);
         hasManagerRole = checkRoleValue(managerRoleId);
         hasOwnerRole = checkRoleValue(ownerRoleId);
+        hasCoordinatorRole = checkRoleValue(coordinatorRoleId);
         hasCustomerRole = customerRoleId ? checkRoleValue(customerRoleId) : true;
       } else {
         errorBody = await memberResponse.text();
@@ -872,14 +1232,14 @@ async function startServer() {
       // Determine authorization based on requested pane and roles
       let hasRole = false;
       if (pane === "medewerkerpaneel") {
-        hasRole = isEmployee;
+        hasRole = isEmployee || hasCoordinatorRole;
       } else {
         // Can be customer OR staff/manager/owner to view customers page (since employee is also customer)
-        hasRole = hasCustomerRole || isEmployee;
+        hasRole = hasCustomerRole || isEmployee || hasCoordinatorRole;
       }
 
       // If they are allowed in, but roles are empty because of lack of configuration, allow it
-      if (memberResponse.ok && !staffRoleId && !customerRoleId && !managerRoleId && !ownerRoleId) {
+      if (memberResponse.ok && !staffRoleId && !customerRoleId && !managerRoleId && !ownerRoleId && !coordinatorRoleId) {
         hasRole = true;
       }
 
@@ -907,6 +1267,13 @@ async function startServer() {
             return cleanConfig && r.name.replace(/^@/, "").trim().toLowerCase() === cleanConfig;
           });
           discordRoleName = matchedRole ? matchedRole.name : "Medewerker";
+        } else if (hasCoordinatorRole) {
+          const matchedRole = discordRoles.find((r: any) => {
+            if (coordinatorRoleId && r.id === coordinatorRoleId) return true;
+            const cleanConfig = coordinatorRoleId ? coordinatorRoleId.replace(/^@/, "").trim().toLowerCase() : "";
+            return cleanConfig && r.name.replace(/^@/, "").trim().toLowerCase() === cleanConfig;
+          });
+          discordRoleName = matchedRole ? matchedRole.name : "Coördinator";
         } else if (hasCustomerRole && customerRoleId) {
           const matchedRole = discordRoles.find((r: any) => {
             if (customerRoleId && r.id === customerRoleId) return true;
@@ -918,7 +1285,7 @@ async function startServer() {
       }
 
       if (!discordRoleName) {
-        discordRoleName = hasOwnerRole ? "Eigenaar" : hasManagerRole ? "Manager" : hasStaffRole ? "Medewerker" : "Klant";
+        discordRoleName = hasOwnerRole ? "Eigenaar" : hasManagerRole ? "Manager" : hasStaffRole ? "Medewerker" : hasCoordinatorRole ? "Coördinator" : "Klant";
       }
 
       // Check access permission
@@ -1016,6 +1383,7 @@ async function startServer() {
         guildMember: true,
         isManager: hasManagerRole,
         isOwner: hasOwnerRole,
+        isCoordinator: hasCoordinatorRole,
       };
 
       // Output authorization success page
