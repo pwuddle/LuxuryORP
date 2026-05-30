@@ -27,6 +27,7 @@ export default function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
   const [requests, setRequests] = useState<PurchaseRequest[]>(INITIAL_REQUESTS);
   const [sales, setSales] = useState<SaleRecord[]>(INITIAL_SALES);
+  const [deletedCustomerIds, setDeletedCustomerIds] = useState<string[]>([]);
 
   // Fetch the latest global dealership state from the backend (making state fully shared)
   const fetchState = () => {
@@ -39,6 +40,7 @@ export default function App() {
         if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
         if (Array.isArray(data.requests)) setRequests(data.requests);
         if (Array.isArray(data.sales)) setSales(data.sales);
+        if (Array.isArray(data.deletedCustomerIds)) setDeletedCustomerIds(data.deletedCustomerIds);
       })
       .catch((err) => {
         console.warn("Mislukt om live dealership status te synchroniseren:", err);
@@ -49,8 +51,8 @@ export default function App() {
     // Initial fetch on mount
     fetchState();
 
-    // Setup periodic polling interval (every 5 seconds) to catch other clients' updates
-    const interval = setInterval(fetchState, 5000);
+    // Setup periodic polling interval (every 3 seconds) to catch other clients' updates
+    const interval = setInterval(fetchState, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -186,7 +188,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
-    }).catch((err) => console.error("Failed to sync vehicle stock:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync vehicle stock:", err));
   };
 
   const handleUpdateVehiclePrice = (id: string, newPrice: number) => {
@@ -199,7 +203,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
-    }).catch((err) => console.error("Failed to sync vehicle price:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync vehicle price:", err));
   };
 
   const handleAddVehicle = (newVehicle: Vehicle) => {
@@ -209,7 +215,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newVehicle),
-    }).catch((err) => console.error("Failed to sync new vehicle:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync new vehicle:", err));
   };
 
   const handleEditVehicle = (updatedVehicle: Vehicle) => {
@@ -219,7 +227,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedVehicle),
-    }).catch((err) => console.error("Failed to sync updated vehicle:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync updated vehicle:", err));
   };
 
   const handleDeleteVehicle = (id: string) => {
@@ -227,7 +237,9 @@ export default function App() {
 
     fetch(`/api/dealership/vehicles/${id}`, {
       method: "DELETE",
-    }).catch((err) => console.error("Failed to sync deleted vehicle:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync deleted vehicle:", err));
   };
 
   // Add Sale registered report and lower stock automatically
@@ -243,7 +255,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(freshSale),
-    }).catch((err) => console.error("Failed to sync new sale:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync new sale:", err));
 
     return freshSale;
   };
@@ -253,7 +267,9 @@ export default function App() {
 
     fetch(`/api/dealership/sales/${saleId}`, {
       method: "DELETE",
-    }).catch((err) => console.error("Failed to sync deleted sale:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync deleted sale:", err));
   };
 
   // Submit dynamic quote request
@@ -270,7 +286,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(freshRequest),
-    }).catch((err) => console.error("Failed to sync new purchase request:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync new purchase request:", err));
   };
 
   // Set deal status approved vs denied
@@ -286,7 +304,9 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedRequest),
-    }).catch((err) => console.error("Failed to sync request status:", err));
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync request status:", err));
 
     if (status === "Goedgekeurd") {
       // Find matching vehicle and decrease stock
@@ -300,7 +320,9 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(updatedVehicle),
-        }).catch((err) => console.error("Failed to sync vehicle stock decrease:", err));
+        })
+          .then(() => fetchState())
+          .catch((err) => console.error("Failed to sync vehicle stock decrease:", err));
 
         // Log transaction sale automatism
         const freshSale: SaleRecord = {
@@ -309,7 +331,7 @@ export default function App() {
           vehicleId: targetReq.vehicleId,
           vehicleName: targetReq.vehicleName,
           pricePaid: targetVehicle.price,
-          salesperson: user?.globalName || user?.username || "Perseus Manager",
+          salesperson: user ? `${user.globalName || user.username} (${user.id})` : "Perseus Manager",
           status: "Betaald",
           id: `s_${Date.now()}`,
           date: new Date().toISOString().split("T")[0],
@@ -321,9 +343,21 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(freshSale),
-        }).catch((err) => console.error("Failed to sync automatic sale record:", err));
+        })
+          .then(() => fetchState())
+          .catch((err) => console.error("Failed to sync automatic sale record:", err));
       }
     }
+  };
+
+  const handleDeleteCustomer = (id: string) => {
+    setDeletedCustomerIds((prev) => [...prev, id]);
+
+    fetch(`/api/dealership/customers/${id}`, {
+      method: "DELETE",
+    })
+      .then(() => fetchState())
+      .catch((err) => console.error("Failed to sync deleted customer:", err));
   };
 
   // Core background layouts depending on current theme selector
@@ -381,6 +415,8 @@ export default function App() {
               vehicles={vehicles}
               requests={requests}
               sales={sales}
+              deletedCustomerIds={deletedCustomerIds}
+              onDeleteCustomer={handleDeleteCustomer}
               onStartOAuth={handleStartOAuth}
               onUpdateVehicleStock={handleUpdateVehicleStock}
               onUpdateVehiclePrice={handleUpdateVehiclePrice}

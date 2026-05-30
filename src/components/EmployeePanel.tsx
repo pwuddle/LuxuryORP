@@ -20,6 +20,8 @@ interface EmployeePanelProps {
   vehicles: Vehicle[];
   requests: PurchaseRequest[];
   sales: SaleRecord[];
+  deletedCustomerIds: string[];
+  onDeleteCustomer: (id: string) => void;
   onStartOAuth: (pane: "klantenpaneel" | "medewerkerpaneel") => void;
   onUpdateVehicleStock: (id: string, newStock: number) => void;
   onUpdateVehiclePrice: (id: string, newPrice: number) => void;
@@ -67,6 +69,8 @@ export default function EmployeePanel({
   vehicles,
   requests,
   sales,
+  deletedCustomerIds,
+  onDeleteCustomer,
   onStartOAuth,
   onUpdateVehicleStock,
   onUpdateVehiclePrice,
@@ -82,6 +86,9 @@ export default function EmployeePanel({
 
   // Local state to store edited customer details
   const [editedCustomers, setEditedCustomers] = useState<Record<string, Partial<Customer>>>({});
+
+  // Track confirmation of customer deletion
+  const [confirmDeleteCustomerId, setConfirmDeleteCustomerId] = useState<string | null>(null);
 
   // Dynamically derive customers from the current sales and requests, merged with manual edits
   const customers = useMemo(() => {
@@ -123,8 +130,8 @@ export default function EmployeePanel({
         });
       }
     });
-    return list;
-  }, [sales, requests, editedCustomers]);
+    return list.filter(c => !deletedCustomerIds.includes(c.id));
+  }, [sales, requests, editedCustomers, deletedCustomerIds]);
 
   // Search & Selected Customer in Klantenbestand
   const [customerSearch, setCustomerSearch] = useState("");
@@ -290,18 +297,20 @@ export default function EmployeePanel({
       return;
     }
 
+    const salespersonLabel = user ? `${user.globalName || user.username} (${user.id})` : "Perseus Manager";
+
     onAddSale({
       buyerDiscordId: targetCustomer.id,
       buyerName: targetCustomer.fullName,
       vehicleId: selectedVehicleId,
       vehicleName: targetVehicle.name,
       pricePaid: salePrice,
-      salesperson: selectedSalesperson,
+      salesperson: salespersonLabel,
       status: saleStatus,
     });
 
     onUpdateVehicleStock(selectedVehicleId, targetVehicle.stock - 1);
-    setSaleSuccessMessage(`Succes: ${targetVehicle.name} (${saleStatus}) geregistreerd voor @${targetCustomer.fullName} door ${selectedSalesperson}!`);
+    setSaleSuccessMessage(`Succes: ${targetVehicle.name} (${saleStatus}) geregistreerd voor @${targetCustomer.fullName} door ${salespersonLabel}!`);
     setSelectedClientAndBsnId("");
     setSaleStatus("Besteld");
 
@@ -493,19 +502,13 @@ export default function EmployeePanel({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className={`block text-[10px] uppercase font-bold ${textMuted} mb-1`}>Verkoper (Bestaande Discord Rollen)</label>
-                        <select 
-                          required
-                          value={selectedSalesperson} 
-                          onChange={(e) => setSelectedSalesperson(e.target.value)} 
-                          className={`w-full px-3 py-2 border rounded outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8]"} text-xs`}
-                        >
-                          {STAFF_MEMBERS.filter(staff => 
-                            ["Verkoper", "Manager", "Eigenaar"].includes(staff.role)
-                          ).map(staff => (
-                            <option key={staff.id} value={staff.name}>{staff.name} ({staff.role})</option>
-                          ))}
-                        </select>
+                        <label className={`block text-[10px] uppercase font-bold ${textMuted} mb-1`}>Verkoper (Ingelogde Medewerker)</label>
+                        <input 
+                          type="text" 
+                          readOnly 
+                          value={user ? `${user.globalName || user.username} (${user.id})` : "Perseus Manager"} 
+                          className={`w-full px-3 py-2 border rounded outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8]"} text-xs font-semibold select-all`} 
+                        />
                       </div>
                       <div>
                         <label className={`block text-[10px] uppercase font-bold ${textMuted} mb-1`}>Verkoopstatus</label>
@@ -746,7 +749,41 @@ export default function EmployeePanel({
                             </div>
                           </form>
                         ) : (
-                          <div className="flex justify-end">
+                          <div className="flex flex-wrap items-center justify-between w-full gap-4 mt-2">
+                            <div>
+                              {confirmDeleteCustomerId === selectedCustomerObj.id ? (
+                                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg p-2">
+                                  <span className="text-[10px] text-red-400 font-extrabold uppercase tracking-wider">Zeker weten?</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      onDeleteCustomer(selectedCustomerObj.id);
+                                      setConfirmDeleteCustomerId(null);
+                                      setSelectedCustomerId("");
+                                    }}
+                                    className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase rounded cursor-pointer transition-colors shadow-sm"
+                                  >
+                                    Ja, verwijder
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteCustomerId(null)}
+                                    className="px-2.5 py-1 bg-zinc-600 hover:bg-zinc-700 text-white text-[10px] font-black uppercase rounded cursor-pointer transition-colors"
+                                  >
+                                    Nee
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteCustomerId(selectedCustomerObj.id)}
+                                  className="px-4 py-2 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/30 text-xs font-black uppercase rounded-lg flex items-center gap-1.5 transition-all hover:-translate-y-0.5 cursor-pointer shadow-md"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" /> Klant Verwijderen
+                                </button>
+                              )}
+                            </div>
+
                             {selectedCustomerObj.hasLoggedIn ? (
                               <button 
                                 onClick={() => setEditingCustomerFields({
@@ -760,9 +797,9 @@ export default function EmployeePanel({
                                 <Edit className="w-3.5 h-3.5" /> Gegevens Aanpassen
                               </button>
                             ) : (
-                              <div className="w-full p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 font-semibold flex items-center gap-2 leading-relaxed">
-                                <Lock className="w-4 h-4 text-amber-500 shrink-0" />
-                                <span>Gegevens kunnen pas handmatig worden toegevoegd of bewerkt zodra de klant zich minimaal één keer heeft aangemeld op de website.</span>
+                              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/25 text-[10px] text-amber-500 font-bold flex items-center gap-2 max-w-sm">
+                                <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span>Bewerken kan pas zodra de klant minimaal één keer heeft aangemeld.</span>
                               </div>
                             )}
                           </div>

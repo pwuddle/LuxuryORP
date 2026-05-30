@@ -19,6 +19,7 @@ const STATE_FILE_PATH = path.join(process.cwd(), "dealership_state.json");
 let vehicles: Vehicle[] = [...INITIAL_VEHICLES];
 let requests: PurchaseRequest[] = [...INITIAL_REQUESTS];
 let sales: SaleRecord[] = [...INITIAL_SALES];
+let deletedCustomerIds: string[] = [];
 
 function loadState() {
   try {
@@ -27,6 +28,7 @@ function loadState() {
       if (Array.isArray(data.vehicles)) vehicles = data.vehicles;
       if (Array.isArray(data.requests)) requests = data.requests;
       if (Array.isArray(data.sales)) sales = data.sales;
+      if (Array.isArray(data.deletedCustomerIds)) deletedCustomerIds = data.deletedCustomerIds;
       console.log("Successfully loaded dealership state from persistent file.");
     } else {
       console.log("No persistent dealership state file found. Using default initial state.");
@@ -41,7 +43,7 @@ function saveState() {
   try {
     fs.writeFileSync(
       STATE_FILE_PATH,
-      JSON.stringify({ vehicles, requests, sales }, null, 2),
+      JSON.stringify({ vehicles, requests, sales, deletedCustomerIds }, null, 2),
       "utf-8"
     );
   } catch (err) {
@@ -62,7 +64,7 @@ async function startServer() {
 
   // API Route: Get the current global dealership state
   app.get("/api/dealership/state", (req, res) => {
-    res.json({ vehicles, requests, sales });
+    res.json({ vehicles, requests, sales, deletedCustomerIds });
   });
 
   // API Route: Add or update a vehicle in the catalog
@@ -127,6 +129,16 @@ async function startServer() {
     sales = sales.filter(s => s.id !== id);
     saveState();
     res.json({ success: true });
+  });
+
+  // API Route: Delete a customer (mark as deleted)
+  app.delete("/api/dealership/customers/:id", (req, res) => {
+    const { id } = req.params;
+    if (!deletedCustomerIds.includes(id)) {
+      deletedCustomerIds.push(id);
+    }
+    saveState();
+    res.json({ success: true, deletedCustomerIds });
   });
 
   // API Route: Fetch live Discord member & online counts from public invite link
