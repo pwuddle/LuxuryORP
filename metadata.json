@@ -1,6 +1,6 @@
 {
-  "name": "FiveM Luxury & Import Dealership",
-  "description": "An interactive, ultra-premium showroom website for a FiveM luxury and import car dealership. Features custom tuning simulators, a personalized license-plate designer, realistic financing models, and custom special-order request services.",
+  "name": "Perseus Car Dealership",
+  "description": "Website voor FiveM Car Dealership Perseus met Discord OAuth klanten- en medewerkerspaneel en catalogus.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
