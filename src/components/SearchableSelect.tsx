@@ -42,7 +42,7 @@ export default function SearchableSelect({
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape" || e.key === "Backspace") {
+    if (e.key === "Escape") {
       setIsOpen(false);
     }
   };

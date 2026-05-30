@@ -22,6 +22,16 @@ let sales: SaleRecord[] = [...INITIAL_SALES];
 let deletedCustomerIds: string[] = [];
 let registeredCustomers: any[] = [];
 let editedCustomers: Record<string, any> = {};
+let spreadsheetUrl: string = "";
+
+// Google API configuration and OAuth tokens
+let googleClientId: string = "";
+let googleClientSecret: string = "";
+let googleAccessToken: string = "";
+let googleRefreshToken: string = "";
+let googleTokenExpiry: number = 0;
+
+let onStateChangeCallback: (() => void) | null = null;
 
 function loadState() {
   try {
@@ -33,6 +43,14 @@ function loadState() {
       if (Array.isArray(data.deletedCustomerIds)) deletedCustomerIds = data.deletedCustomerIds;
       if (Array.isArray(data.registeredCustomers)) registeredCustomers = data.registeredCustomers;
       if (data.editedCustomers) editedCustomers = data.editedCustomers;
+      if (typeof data.spreadsheetUrl === "string") spreadsheetUrl = data.spreadsheetUrl;
+      
+      if (typeof data.googleClientId === "string") googleClientId = data.googleClientId;
+      if (typeof data.googleClientSecret === "string") googleClientSecret = data.googleClientSecret;
+      if (typeof data.googleAccessToken === "string") googleAccessToken = data.googleAccessToken;
+      if (typeof data.googleRefreshToken === "string") googleRefreshToken = data.googleRefreshToken;
+      if (typeof data.googleTokenExpiry === "number") googleTokenExpiry = data.googleTokenExpiry;
+
       console.log("Successfully loaded dealership state from persistent file.");
     } else {
       console.log("No persistent dealership state file found. Using default initial state.");
@@ -47,9 +65,25 @@ function saveState() {
   try {
     fs.writeFileSync(
       STATE_FILE_PATH,
-      JSON.stringify({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers, editedCustomers }, null, 2),
+      JSON.stringify({ 
+        vehicles, 
+        requests, 
+        sales, 
+        deletedCustomerIds, 
+        registeredCustomers, 
+        editedCustomers, 
+        spreadsheetUrl,
+        googleClientId,
+        googleClientSecret,
+        googleAccessToken,
+        googleRefreshToken,
+        googleTokenExpiry
+      }, null, 2),
       "utf-8"
     );
+    if (onStateChangeCallback) {
+      onStateChangeCallback();
+    }
   } catch (err) {
     console.error("Failed to save dealership state to file:", err);
   }
@@ -69,6 +103,422 @@ async function startServer() {
   // API Route: Get the current global dealership state
   app.get("/api/dealership/state", (req, res) => {
     res.json({ vehicles, requests, sales, deletedCustomerIds, registeredCustomers, editedCustomers });
+  });
+
+  // Helper to extract Spreadsheet ID
+  function getSpreadsheetId(url: string): string | null {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : null;
+  }
+
+  // Helper to refresh Google Token if needed
+  async function refreshGoogleAccessToken(): Promise<string | null> {
+    if (!googleRefreshToken) {
+      console.log("Unable to refresh Google access token: No refresh token stored.");
+      return null;
+    }
+    if (googleAccessToken && googleTokenExpiry && Date.now() < googleTokenExpiry) {
+      return googleAccessToken;
+    }
+
+    try {
+      const tokenUrl = "https://oauth2.googleapis.com/token";
+      const bodyParams = new URLSearchParams({
+        client_id: googleClientId,
+        client_secret: googleClientSecret,
+        refresh_token: googleRefreshToken,
+        grant_type: "refresh_token"
+      });
+
+      const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: bodyParams.toString()
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Google token refresh request failed:", errorText);
+        return null;
+      }
+
+      const data = await response.json();
+      googleAccessToken = data.access_token;
+      if (data.expires_in) {
+        googleTokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
+      }
+      saveState();
+      console.log("Successfully refreshed Google access token.");
+      return googleAccessToken;
+    } catch (err) {
+      console.error("Failed to automatically refresh Google access token:", err);
+      return null;
+    }
+  }
+
+  // Core Sync to Google Sheets Function
+  async function syncAllToGoogleSheets(): Promise<{ success: boolean; message: string }> {
+    if (!spreadsheetUrl) {
+      return { success: false, message: "Geen Google Spreadsheet URL geconfigureerd." };
+    }
+
+    const spreadsheetId = getSpreadsheetId(spreadsheetUrl);
+    if (!spreadsheetId) {
+      return { success: false, message: "Ongeldige Google Spreadsheet URL. Kon de ID niet extraheren." };
+    }
+
+    const token = await refreshGoogleAccessToken();
+    if (!token) {
+      return { success: false, message: "Server is niet verbonden met Google. Sla eerst uw Client-gegevens op en klik op 'Koppel Google Account'." };
+    }
+
+    try {
+      // 1. Fetch current sheets to see if tabs exist
+      const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
+      const metaRes = await fetch(metadataUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!metaRes.ok) {
+        if (metaRes.status === 401 || metaRes.status === 403) {
+          return { success: false, message: "Geen toegang tot spreadsheet. Uw tokens zijn mogelijk verlopen. Koppel uw Google Account opnieuw." };
+        }
+        const errorDetail = await metaRes.text();
+        throw new Error(`Google API fout: ${errorDetail}`);
+      }
+
+      const metadata = await metaRes.json();
+      const sheetTitles: string[] = metadata.sheets?.map((s: any) => s.properties.title) || [];
+
+      // Required tabs
+      const requiredTabs = ["Catalogus", "Klanten", "Verkopen", "Aanvragen"];
+      const missingTabs = requiredTabs.filter(tab => !sheetTitles.includes(tab));
+
+      if (missingTabs.length > 0) {
+        // Add required tabs
+        const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+        const requestsList = missingTabs.map(tab => ({
+          addSheet: { properties: { title: tab } }
+        }));
+
+        const addRes = await fetch(batchUpdateUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ requests: requestsList })
+        });
+
+        if (!addRes.ok) {
+          throw new Error("Kon de vereiste tabbladen (Catalogus, Klanten, enz.) niet automatisch aanmaken.");
+        }
+      }
+
+      // 2. Prepare datasets for each sheet
+      // Tab: Catalogus
+      const catalogData = [
+        ["ID", "Merk/Naam", "Categorie", "Inkoopprijs", "Verkoopprijs", "Voorraad", "Snelheid (Stock)", "Snelheid (Tuned)", "Plekken", "Status (Uitverkocht?)", "Omschrijving"],
+        ...vehicles.map(v => [
+          v.id,
+          `${v.brand} ${v.name}`,
+          v.category,
+          v.purchasePrice,
+          v.price,
+          v.stock,
+          v.topSpeedStock,
+          v.topSpeedTuned,
+          v.inzittenden,
+          v.isSoldOut ? "JA" : "NEE",
+          v.description || ""
+        ])
+      ];
+
+      // Tab: Klanten
+      const customersData = [
+        ["Discord ID", "Discord Naam", "In-Game Naam (IC)", "BSN", "Geboortedatum", "Registratiedatum"],
+        ...registeredCustomers.map(c => {
+          const edit = editedCustomers[c.id] || {};
+          return [
+            c.id,
+            c.globalName || c.username,
+            edit.fullName || "-",
+            edit.bsn || "-",
+            edit.birthDate || "-",
+            c.registrationDate || "-"
+          ];
+        })
+      ];
+
+      // Tab: Verkopen
+      const salesData = [
+        ["Referentie ID", "Klant Discord ID", "Klant Naam", "Voertuig ID", "Voertuig Naam", "Betaalde Prijs", "Datum", "Verkoper", "Status"],
+        ...sales.map(s => [
+          s.id,
+          s.buyerDiscordId,
+          s.buyerName,
+          s.vehicleId,
+          s.vehicleName,
+          s.pricePaid,
+          s.date,
+          s.salesperson,
+          s.status
+        ])
+      ];
+
+      // Tab: Aanvragen
+      const reqsData = [
+        ["Aanvraag ID", "Voertuig ID", "Voertuig Naam", "Klant Discord ID", "Klant Naam", "Betaalmethode", "Datum", "Status"],
+        ...requests.map(r => [
+          r.id,
+          r.vehicleId,
+          r.vehicleName,
+          r.buyerDiscordId,
+          r.buyerName,
+          r.paymentType,
+          r.date,
+          r.status
+        ])
+      ];
+
+      // 3. Sync each tab by clearing and writing
+      const dataToSync = [
+        { title: "Catalogus", rows: catalogData },
+        { title: "Klanten", rows: customersData },
+        { title: "Verkopen", rows: salesData },
+        { title: "Aanvragen", rows: reqsData }
+      ];
+
+      for (const item of dataToSync) {
+        // Clear old range
+        const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${item.title}'!A1:Z5000:clear`;
+        await fetch(clearUrl, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        // Write new range
+        const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${item.title}'!A1?valueInputOption=USER_ENTERED`;
+        const writeRes = await fetch(updateUrl, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            range: `'${item.title}'!A1`,
+            majorDimension: "ROWS",
+            values: item.rows
+          })
+        });
+
+        if (!writeRes.ok) {
+          const errText = await writeRes.text();
+          throw new Error(`Fout bij schrijven naar tabbladen: ${errText}`);
+        }
+      }
+
+      return { success: true, message: "Gegevens succesvol live gesynchroniseerd met Google Spreadsheet!" };
+    } catch (error: any) {
+      console.error("Google sheets sync error:", error);
+      return { success: false, message: `Sync mislukt: ${error.message}` };
+    }
+  }
+
+  // Assign global auto-sync on state change
+  let syncTimeout: NodeJS.Timeout | null = null;
+  onStateChangeCallback = () => {
+    if (syncTimeout) clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(() => {
+      if (spreadsheetUrl && googleRefreshToken) {
+        console.log("Automatic auto-sync to Google Sheets triggered.");
+        syncAllToGoogleSheets()
+          .then(res => {
+            if (res.success) {
+              console.log("Auto-sync success:", res.message);
+            } else {
+              console.warn("Auto-sync did not complete:", res.message);
+            }
+          })
+          .catch(e => console.error("Auto-sync background error:", e));
+      }
+    }, 1500) as any;
+  };
+
+  // Google Sheets configuration and secure values retrieval
+  app.get("/api/dealership/google-config", (req, res) => {
+    res.json({
+      spreadsheetUrl,
+      googleClientId,
+      googleClientSecret: googleClientSecret ? "•••••••••••••" : "",
+      isConnected: !!googleRefreshToken,
+      googleTokenExpiry
+    });
+  });
+
+  // Google Sheets configurations submission
+  app.post("/api/dealership/google-config", (req, res) => {
+    const { url, clientId, clientSecret } = req.body;
+    
+    spreadsheetUrl = url || "";
+    if (clientId !== undefined) googleClientId = clientId;
+    
+    if (clientSecret !== undefined && clientSecret !== "•••••••••••••" && clientSecret !== "") {
+      googleClientSecret = clientSecret;
+    }
+    
+    saveState();
+    res.json({ 
+      success: true, 
+      spreadsheetUrl,
+      googleClientId,
+      isConnected: !!googleRefreshToken
+    });
+  });
+
+  // Redirect client to Google Consent Dialog
+  app.get("/api/dealership/google-auth-start", (req, res) => {
+    if (!googleClientId) {
+      return res.status(400).send("Fout: Google Client ID is niet geconfigureerd in Website Administratie.");
+    }
+    const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const redirectUri = `${host}/api/dealership/google-auth-callback`;
+    
+    const params = new URLSearchParams({
+      client_id: googleClientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "https://www.googleapis.com/auth/spreadsheets",
+      access_type: "offline",
+      prompt: "consent"
+    });
+    
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    res.redirect(googleAuthUrl);
+  });
+
+  // Google OAuth Authorization Exchange Code Callback
+  app.get("/api/dealership/google-auth-callback", async (req, res) => {
+    const { code, error } = req.query;
+    if (error) {
+      return res.status(400).send(`Google Login is geannuleerd of mislukt: ${error}`);
+    }
+    if (!code) {
+      return res.status(400).send("Geen geldige code ontvangen van Google.");
+    }
+
+    try {
+      const host = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+      const redirectUri = `${host}/api/dealership/google-auth-callback`;
+
+      const tokenUrl = "https://oauth2.googleapis.com/token";
+      const bodyParams = new URLSearchParams({
+        code: code as string,
+        client_id: googleClientId,
+        client_secret: googleClientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code"
+      });
+
+      const tokenRes = await fetch(tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: bodyParams.toString()
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        throw new Error(`Google Token API returned ${tokenRes.status}: ${errText}`);
+      }
+
+      const tokenData = await tokenRes.json();
+      googleAccessToken = tokenData.access_token;
+      if (tokenData.refresh_token) {
+        googleRefreshToken = tokenData.refresh_token; 
+      }
+      if (tokenData.expires_in) {
+        googleTokenExpiry = Date.now() + (tokenData.expires_in * 1000) - 60000;
+      }
+      saveState();
+
+      res.send(`
+        <!doctype html>
+        <html lang="nl">
+          <head>
+            <meta charset="utf-8">
+            <title>Google Sheets Gekoppeld</title>
+            <style>
+              body {
+                background: #1e1f22;
+                color: #dcddde;
+                font-family: sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                text-align: center;
+              }
+              .card {
+                background: #2b2d31;
+                border: 1px solid #A87E43;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 400px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+              }
+              h1 { color: #A87E43; margin-top: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+              p { font-size: 13px; color: #949ba4; line-height: 1.5; }
+              .spinner {
+                border: 3px solid rgba(255,255,255,0.05);
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                border-left-color: #A87E43;
+                animation: spin 0.8s linear infinite;
+                margin: 20px auto 0 auto;
+              }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>Google Sheets Gekoppeld!</h1>
+              <p>Machtiging is succesvol verleend. Deze pop-up sluit na enkele seconden...</p>
+              <div class="spinner"></div>
+            </div>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'GOOGLE_SHEETS_AUTH_SUCCESS' }, '*');
+                setTimeout(() => {
+                  window.close();
+                }, 1500);
+              } else {
+                window.location.href = '/';
+              }
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (err: any) {
+      console.error("Google OAuth Callback exchange error:", err);
+      res.status(500).send(`Google OAuth validatie mislukt: ${err.message}`);
+    }
+  });
+
+  // Google Sheets sign out config reset
+  app.post("/api/dealership/google-disconnect", (req, res) => {
+    googleAccessToken = "";
+    googleRefreshToken = "";
+    googleTokenExpiry = 0;
+    saveState();
+    res.json({ success: true });
+  });
+
+  // Google Sheets forced manual synchronization API
+  app.post("/api/dealership/google-sync", async (req, res) => {
+    const result = await syncAllToGoogleSheets();
+    res.json(result);
   });
 
   // API Route: Add or update a vehicle in the catalog

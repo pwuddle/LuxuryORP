@@ -88,10 +88,153 @@ export default function EmployeePanel({
   onDeleteVehicle
 }: EmployeePanelProps) {
   // Navigation
-  const [activeTab, setActiveTab] = useState<"verkoop" | "klanten" | "catalogus" | "financieel">("verkoop");
+  const [activeTab, setActiveTab] = useState<"verkoop" | "klanten" | "catalogus" | "financieel" | "administratie">("verkoop");
 
   // Track confirmation of customer deletion
   const [confirmDeleteCustomerId, setConfirmDeleteCustomerId] = useState<string | null>(null);
+
+  // Website Administratie States
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [googleClientSecret, setGoogleClientSecret] = useState("");
+  const [isConnected, setIsConnected] = useState(false);
+  const [isSavingSpreadsheet, setIsSavingSpreadsheet] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ text: string; error: boolean } | null>(null);
+
+  const isOwner = !!user?.isOwner;
+
+  // Fetch secure Google Sheets configuration
+  useEffect(() => {
+    if (user?.isOwner) {
+      fetch("/api/dealership/google-config")
+        .then(res => res.json())
+        .then(data => {
+          if (data.spreadsheetUrl) setSpreadsheetUrl(data.spreadsheetUrl);
+          if (data.googleClientId) setGoogleClientId(data.googleClientId);
+          if (data.googleClientSecret) setGoogleClientSecret(data.googleClientSecret);
+          setIsConnected(!!data.isConnected);
+        })
+        .catch(err => console.error("Fout bij laden Google Sheets config:", err));
+    }
+  }, [user]);
+
+  // Listen for Google Sheets OAuth success message
+  useEffect(() => {
+    const handleGoogleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "GOOGLE_SHEETS_AUTH_SUCCESS") {
+        setIsConnected(true);
+        setSaveMessage({ text: "Google Sheets verbinding succesvol tot stand gebracht!", error: false });
+        setTimeout(() => setSaveMessage(null), 5000);
+      }
+    };
+    window.addEventListener("message", handleGoogleMessage);
+    return () => window.removeEventListener("message", handleGoogleMessage);
+  }, []);
+
+  // Save config values securely on the server
+  const handleSaveGoogleConfig = (e: FormEvent) => {
+    e.preventDefault();
+    setIsSavingSpreadsheet(true);
+    setSaveMessage(null);
+
+    fetch("/api/dealership/google-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        url: spreadsheetUrl, 
+        clientId: googleClientId, 
+        clientSecret: googleClientSecret 
+      })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Fout bij opslaan");
+        return res.json();
+      })
+      .then(data => {
+        setSaveMessage({ text: "Instellingen succesvol opgeslagen en beveiligd!", error: false });
+        setTimeout(() => setSaveMessage(null), 4000);
+      })
+      .catch(() => {
+        setSaveMessage({ text: "Er is een fout opgetreden bij het opslaan van de instellingen.", error: true });
+      })
+      .finally(() => {
+        setIsSavingSpreadsheet(false);
+      });
+  };
+
+  // Trigger popup authenticating Google account
+  const handleGoogleConnect = () => {
+    // Automatically save current input before starting auth popup
+    fetch("/api/dealership/google-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        url: spreadsheetUrl, 
+        clientId: googleClientId, 
+        clientSecret: googleClientSecret 
+      })
+    })
+      .then(() => {
+        const width = 500;
+        const height = 600;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+        
+        const authWindow = window.open(
+          "/api/dealership/google-auth-start",
+          "google_sheets_oauth_popup",
+          `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+        );
+        
+        if (!authWindow) {
+          alert("De Google login pop-up is geblokkeerd door uw browser. Schakel de pop-up blocker uit voor deze site.");
+        }
+      })
+      .catch(err => {
+        console.error("Fout bij automatisch opslaan voor Google autorisatie:", err);
+      });
+  };
+
+  // Disconnect Google tokens
+  const handleGoogleDisconnect = () => {
+    if (!window.confirm("Weet u zeker dat u de koppeling met dit Google account wilt verbreken?")) return;
+    fetch("/api/dealership/google-disconnect", { method: "POST" })
+      .then(res => res.json())
+      .then(() => {
+        setIsConnected(false);
+        setSaveMessage({ text: "Google-account succesvol ontkoppeld.", error: false });
+        setTimeout(() => setSaveMessage(null), 4000);
+      })
+      .catch(err => {
+        console.error("Fout bij ontkoppelen Google account:", err);
+      });
+  };
+
+  // Force manual instant synchronisation
+  const handleForceSync = () => {
+    setIsSyncing(true);
+    setSyncResult(null);
+    fetch("/api/dealership/google-sync", { method: "POST" })
+      .then(res => {
+        if (!res.ok) throw new Error("Fout bij synchroniseren");
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          setSyncResult({ text: data.message, error: false });
+        } else {
+          setSyncResult({ text: data.message, error: true });
+        }
+      })
+      .catch(() => {
+        setSyncResult({ text: "Synchronisatie is mislukt vanwege een serverfout. Controleer uw verbinding.", error: true });
+      })
+      .finally(() => {
+        setIsSyncing(false);
+      });
+  };
 
   // Dynamically derive customers from the current sales and requests, merged with manual edits
   const customers = useMemo(() => {
@@ -212,7 +355,7 @@ export default function EmployeePanel({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Backspace") {
+      if (e.key === "Escape") {
         if (editingVehicle) {
           setEditingVehicle(null);
         }
@@ -482,6 +625,9 @@ export default function EmployeePanel({
         <button onClick={() => setActiveTab("klanten")} className={tabClass("klanten")}><Users className="w-4 h-4" /> Klantenbestand</button>
         <button onClick={() => setActiveTab("catalogus")} className={tabClass("catalogus")}><Car className="w-4 h-4" /> Catalogus Beheer</button>
         <button onClick={() => setActiveTab("financieel")} className={tabClass("financieel")}><Landmark className="w-4 h-4" /> Financieel Beheer</button>
+        {isOwner && (
+          <button onClick={() => setActiveTab("administratie")} className={tabClass("administratie")}><Lock className="w-4 h-4" /> Website Administratie</button>
+        )}
       </div>
 
       {/* Tab contents panel */}
@@ -1360,6 +1506,192 @@ export default function EmployeePanel({
                   ) : (
                     <p className={`text-xs ${textMuted} text-center py-6`}>Geen actieve verkopen gevonden binnen deze selectie.</p>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 5. WEBSITE ADMINISTRATIE */}
+          {activeTab === "administratie" && (
+            <div className="space-y-6 relative overflow-hidden animate-fade-in text-xs">
+              {!isOwner && (
+                <div className="absolute inset-0 bg-[#1e1f22]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
+                  <Lock className="w-12 h-12 text-[#A87E43] bg-[#A87E43]/15 p-2.5 rounded-full" />
+                  <div>
+                    <h4 className="text-sm font-black text-white uppercase tracking-wider font-sans">Eigenaar Toegang Toegestaan</h4>
+                    <p className="text-[11px] text-[#949ba4] max-w-sm mt-1">U hebt geen rechten om deze pagina te bekijken. Alleen de eigenaar kan de website-administratie beheren.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className={`p-6 rounded-xl ${bgCard} border ${borderCard} space-y-6 shadow-md`}>
+                <div className="border-b border-[#A87E43]/20 pb-4">
+                  <h3 className={`text-base font-black ${textPrimary} flex items-center gap-2`}><Lock className="w-5 h-5 text-[#A87E43]" /> Website Administratie & Databasekoppeling</h3>
+                  <p className={`text-[11px] ${textMuted} mt-0.5`}>Koppel uw website veilig met Google Sheets. De server houdt al uw gegevens live gesynchroniseerd in de cloud.</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-2">
+                  <form onSubmit={handleSaveGoogleConfig} className="lg:col-span-7 space-y-5">
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider border-l-2 border-[#A87E43] pl-2">1. Google Credentials</h4>
+
+                    <div className="space-y-2">
+                      <label className="block text-[10px] uppercase font-bold text-[#A87E43]">Google Spreadsheet URL / Link</label>
+                      <input 
+                        type="url"
+                        placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                        value={spreadsheetUrl}
+                        onChange={(e) => setSpreadsheetUrl(e.target.value)}
+                        className={`w-full px-3 py-2 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] focus:border-[#A87E43]"} font-medium`}
+                        required
+                      />
+                      <p className="text-[10px] text-gray-500">
+                        De link van uw spreadsheet dat gebruikt zal worden voor gegevensopslag (tabs &quot;Catalogus&quot;, &quot;Klanten&quot;, &quot;Verkopen&quot;, &quot;Aanvragen&quot; worden automatisch aangemaakt).
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="block text-[10px] uppercase font-bold text-[#A87E43]">Google Client ID</label>
+                        <input 
+                          type="text"
+                          placeholder="xxxxxxxxxx.apps.googleusercontent.com"
+                          value={googleClientId}
+                          onChange={(e) => setGoogleClientId(e.target.value)}
+                          className={`w-full px-3 py-2 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] focus:border-[#A87E43]"} font-mono`}
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-[10px] uppercase font-bold text-[#A87E43]">Google Client Secret</label>
+                        <input 
+                          type="password"
+                          placeholder="GOCSPX-xxxxxxxxxxxxxxxxxxxx"
+                          value={googleClientSecret}
+                          onChange={(e) => setGoogleClientSecret(e.target.value)}
+                          className={`w-full px-3 py-2 text-xs rounded border outline-hidden ${isDarkMode ? "bg-[#1e1f22] border-white/5 text-[#dcddde] focus:border-[#A87E43]" : "bg-white border-[#e3e5e8] focus:border-[#A87E43]"} font-mono`}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {saveMessage && (
+                      <div className={`p-3 text-xs font-bold rounded ${saveMessage.error ? "bg-red-500/15 border border-red-500/30 text-red-400" : "bg-green-500/15 border border-green-500/30 text-green-400"}`}>
+                        {saveMessage.text}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-3">
+                      <button 
+                        type="submit" 
+                        disabled={isSavingSpreadsheet}
+                        className="px-4 py-2 bg-black/40 hover:bg-[#A87E43] hover:text-black text-[#A87E43] border border-[#A87E43]/40 hover:border-[#A87E43] font-extrabold uppercase rounded shadow transition-all cursor-pointer text-[10px]"
+                      >
+                        {isSavingSpreadsheet ? "Opslaan..." : "Wijzigingen Opslaan"}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="lg:col-span-5 flex flex-col justify-between p-4 rounded-lg bg-black/15 border border-white/5 space-y-5">
+                    <div>
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2 border-l-2 border-[#A87E43] pl-2">2. Systeem Status</h4>
+                      
+                      <div className="space-y-3 mt-4 text-[11px]">
+                        <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                          <span className="text-gray-400">Google OAuth Connectie:</span>
+                          {isConnected ? (
+                            <span className="px-2 py-0.5 bg-green-500/15 text-green-400 border border-green-500/30 font-bold uppercase rounded text-[9px] flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Verbonden
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-red-500/15 text-red-400 border border-red-500/30 font-bold uppercase rounded text-[9px] flex items-center gap-1">
+                              <XCircle className="w-3 h-3" /> Ontkoppeld
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                          <span className="text-gray-400">Automatische Real-Time Auto-Sync:</span>
+                          {isConnected && spreadsheetUrl ? (
+                            <span className="px-2 py-0.5 bg-green-500/15 text-green-400 border border-green-500/30 font-bold uppercase rounded text-[9px] flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" /> Stand-by / Live Actief
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-neutral-500/15 text-neutral-400 border border-neutral-500/30 font-bold uppercase rounded text-[9px] flex items-center gap-1">
+                              Inactief
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-3">
+                      <div className="flex flex-col gap-2">
+                        {!isConnected ? (
+                          <button 
+                            type="button"
+                            onClick={handleGoogleConnect}
+                            className="w-full py-2 bg-[#A87E43] hover:bg-[#8e6933] text-black font-extrabold uppercase rounded shadow transition-all cursor-pointer text-[10px] text-center"
+                          >
+                            🔑 Koppel Google Account
+                          </button>
+                        ) : (
+                          <div className="space-y-2">
+                            <button 
+                              type="button"
+                              onClick={handleForceSync}
+                              disabled={isSyncing}
+                              className="w-full py-2 bg-green-500/20 hover:bg-green-500 hover:text-black text-green-400 border border-green-500/40 font-extrabold uppercase rounded shadow transition-all cursor-pointer text-[10px] flex items-center justify-center gap-1"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                              {isSyncing ? "Synchroniseren..." : "Forceer Handmatige Sync"}
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={handleGoogleDisconnect}
+                              className="w-full py-2 bg-red-500/15 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/30 font-extrabold uppercase rounded shadow transition-all cursor-pointer text-[10px] text-center"
+                            >
+                              Ontkoppelen van Google
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {syncResult && (
+                        <div className={`p-2.5 text-[10px] font-bold rounded ${syncResult.error ? "bg-red-500/15 border border-red-500/30 text-red-400" : "bg-green-500/15 border border-green-500/30 text-green-400"}`}>
+                          {syncResult.text}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-[#A87E43]/20 pt-4 space-y-4">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2 border-l-2 border-[#A87E43] pl-2">Handleiding: Google Cloud API Sleutels Maken (100% Gratis & Snel)</h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px] text-[#dcddde] leading-relaxed">
+                    <div className="p-3 bg-black/10 rounded-lg border border-white/5 space-y-1">
+                      <strong className="text-xs text-[#A87E43] block">1. Maak Project aan</strong>
+                      <p className="text-[10px] text-gray-400">
+                        Ga naar de <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-[#A87E43] underline font-bold">Google Cloud Console</a>, maak een nieuw, volledig gratis project aan en schakel de <strong>Google Sheets API</strong> in via de API-bibliotheek.
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-black/10 rounded-lg border border-white/5 space-y-1">
+                      <strong className="text-xs text-[#A87E43] block">2. Configureer OAuth Consent&quot;</strong>
+                      <p className="text-[10px] text-gray-400">
+                        Ga naar &apos;OAuth consent screen&apos;, kies &apos;External&apos;, en geef uw app een willekeurige naam. Voeg de scope <code>.../auth/spreadsheets</code> toe en voeg uw eigen e-mailadres toe als testgebruiker.
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-black/10 rounded-lg border border-white/5 space-y-1">
+                      <strong className="text-xs text-[#A87E43] block">3. Genereer Credentials</strong>
+                      <p className="text-[10px] text-gray-400">
+                        Klik op &apos;Credentials&apos;, kies &apos;OAuth client ID&apos;, type &apos;Web Application&apos;. Voeg bij &apos;Authorized redirect URIs&apos; exact de link van deze website toe met het pad: <code>/api/dealership/google-auth-callback</code>.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

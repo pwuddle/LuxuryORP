@@ -18,7 +18,7 @@ interface OAuthSimulatorModalProps {
 export default function OAuthSimulatorModal({ onClose, onSuccess, requestedPanel }: OAuthSimulatorModalProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Backspace") {
+      if (e.key === "Escape") {
         onClose();
       }
     };

@@ -29,7 +29,7 @@ export default function Catalog({ isDarkMode, vehicles, user, onSubmitRequest, o
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Backspace") {
+      if (e.key === "Escape") {
         setSelectedVehicle(null);
       }
     };
