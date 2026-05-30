@@ -1023,8 +1023,8 @@ async function startServer() {
       return res.status(400).json({ error: "Ongeldige gegevens" });
     }
     // Check if duplicate (already registered)
-    const exists = registeredCustomers.some(c => c.id === visitor.id);
-    if (!exists) {
+    const existingCustomer = registeredCustomers.find(c => c.id === visitor.id);
+    if (!existingCustomer) {
       registeredCustomers.push({
         id: visitor.id,
         username: visitor.username,
@@ -1033,6 +1033,12 @@ async function startServer() {
         hasLoggedIn: true,
         registrationDate: new Date().toISOString().split("T")[0]
       });
+    } else {
+      // Update their Discord details (including profile picture avatar) upon login
+      existingCustomer.avatar = visitor.avatar;
+      existingCustomer.username = visitor.username;
+      existingCustomer.globalName = visitor.globalName || visitor.username;
+      existingCustomer.hasLoggedIn = true;
     }
     // Always remove from deleted list if they are logging in again (meaning they are restored)
     if (deletedCustomerIds.includes(visitor.id)) {
