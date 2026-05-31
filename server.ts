@@ -83,15 +83,73 @@ function loadState() {
       if (typeof data.googleRefreshToken === "string") googleRefreshToken = data.googleRefreshToken;
       if (typeof data.googleTokenExpiry === "number") googleTokenExpiry = data.googleTokenExpiry;
 
+      // Load environment fallbacks/prioritized secrets so they survive container rebuilds & code updates
+      if (process.env.SPREADSHEET_URL && (!spreadsheetUrl || spreadsheetUrl === "")) {
+        spreadsheetUrl = process.env.SPREADSHEET_URL;
+      }
+      if (process.env.GOOGLE_CLIENT_ID && (!googleClientId || googleClientId === "")) {
+        googleClientId = process.env.GOOGLE_CLIENT_ID;
+      }
+      if (process.env.GOOGLE_CLIENT_SECRET && (!googleClientSecret || googleClientSecret === "")) {
+        googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      }
+      if (process.env.GOOGLE_ACCESS_TOKEN && (!googleAccessToken || googleAccessToken === "")) {
+        googleAccessToken = process.env.GOOGLE_ACCESS_TOKEN;
+      }
+      if (process.env.GOOGLE_REFRESH_TOKEN && (!googleRefreshToken || googleRefreshToken === "")) {
+        googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+      }
+      if (process.env.GOOGLE_TOKEN_EXPIRY && (!googleTokenExpiry || googleTokenExpiry === 0)) {
+        googleTokenExpiry = parseInt(process.env.GOOGLE_TOKEN_EXPIRY, 10) || 0;
+      }
+
       console.log("Successfully loaded dealership state from persistent file and removed mock presets/voorbeeld data.");
       // Instantly save state to clean persistent file too
       saveState(true);
     } else {
+      // Fallback to environments even if no persistent state file exists
+      if (process.env.SPREADSHEET_URL) spreadsheetUrl = process.env.SPREADSHEET_URL;
+      if (process.env.GOOGLE_CLIENT_ID) googleClientId = process.env.GOOGLE_CLIENT_ID;
+      if (process.env.GOOGLE_CLIENT_SECRET) googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (process.env.GOOGLE_ACCESS_TOKEN) googleAccessToken = process.env.GOOGLE_ACCESS_TOKEN;
+      if (process.env.GOOGLE_REFRESH_TOKEN) googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+      if (process.env.GOOGLE_TOKEN_EXPIRY) googleTokenExpiry = parseInt(process.env.GOOGLE_TOKEN_EXPIRY, 10) || 0;
+
       console.log("No persistent dealership state file found. Using default initial state.");
       saveState(true);
     }
   } catch (err) {
     console.error("Failed to load dealership state from file:", err);
+  }
+}
+
+function writeToEnv(key: string, value: string) {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let content = "";
+    if (fs.existsSync(envPath)) {
+      content = fs.readFileSync(envPath, "utf-8");
+    }
+    
+    const lines = content.split(/\r?\n/);
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (trimmed.startsWith(`${key}=`) || trimmed.startsWith(`# ${key}=`)) {
+        lines[i] = `${key}="${value.replace(/"/g, '\\"')}"`;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      lines.push(`${key}="${value.replace(/"/g, '\\"')}"`);
+    }
+    fs.writeFileSync(envPath, lines.join("\n"), "utf-8");
+    
+    // Also push to active process context immediately
+    process.env[key] = value;
+  } catch (err) {
+    console.error(`Fout bij wegschrijven naar .env voor ${key}:`, err);
   }
 }
 
@@ -115,6 +173,15 @@ function saveState(skipGoogleSync: boolean = false) {
       }, null, 2),
       "utf-8"
     );
+
+    // Auto-update .env secrets dynamically to keep them safe from git merges/deletes
+    if (spreadsheetUrl) writeToEnv("SPREADSHEET_URL", spreadsheetUrl);
+    if (googleClientId) writeToEnv("GOOGLE_CLIENT_ID", googleClientId);
+    if (googleClientSecret) writeToEnv("GOOGLE_CLIENT_SECRET", googleClientSecret);
+    if (googleAccessToken) writeToEnv("GOOGLE_ACCESS_TOKEN", googleAccessToken);
+    if (googleRefreshToken) writeToEnv("GOOGLE_REFRESH_TOKEN", googleRefreshToken);
+    if (googleTokenExpiry) writeToEnv("GOOGLE_TOKEN_EXPIRY", googleTokenExpiry.toString());
+
     if (onStateChangeCallback && !skipGoogleSync) {
       onStateChangeCallback();
     }
@@ -1306,6 +1373,31 @@ async function startServer() {
         hasOwnerRole = checkRoleValue(ownerRoleId);
         hasCoordinatorRole = checkRoleValue(coordinatorRoleId);
         hasCustomerRole = customerRoleId ? checkRoleValue(customerRoleId) : true;
+
+        // Intelligent automatic name-based fallback mapping if role environment variables are not configured or mismatch
+        const userHasRoleNamedLike = (...substrings: string[]) => {
+          return memberRoles.some(roleId => {
+            const role = discordRoles.find((r: any) => r.id === roleId);
+            if (!role) return false;
+            const rName = role.name.replace(/^@/, "").trim().toLowerCase();
+            return substrings.some(sub => rName.includes(sub.toLowerCase()));
+          });
+        };
+
+        if (!hasOwnerRole && userHasRoleNamedLike("eigenaar", "owner", "directie", "founder", "beheerder")) {
+          hasOwnerRole = true;
+          hasStaffRole = true;
+        }
+        if (!hasManagerRole && userHasRoleNamedLike("manager", "leiding", "beheer", "chef", "directeur")) {
+          hasManagerRole = true;
+          hasStaffRole = true;
+        }
+        if (!hasStaffRole && userHasRoleNamedLike("staff", "medewerker", "werknemer", "employee", "support", "admin", "moderator")) {
+          hasStaffRole = true;
+        }
+        if (!hasCoordinatorRole && userHasRoleNamedLike("coordinator", "coördinator", "supervisor")) {
+          hasCoordinatorRole = true;
+        }
       } else {
         errorBody = await memberResponse.text();
         console.warn("Could not fetch guild member details:", errorBody);

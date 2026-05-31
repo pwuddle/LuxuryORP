@@ -750,7 +750,7 @@ export default function EmployeePanel({
         <button onClick={() => setActiveTab("klanten")} className={tabClass("klanten")}><Users className="w-4 h-4" /> Klantenbestand</button>
         <button onClick={() => setActiveTab("catalogus")} className={tabClass("catalogus")}><Car className="w-4 h-4" /> Catalogus Beheer</button>
         <button onClick={() => setActiveTab("financieel")} className={tabClass("financieel")}><Landmark className="w-4 h-4" /> Financieel Beheer</button>
-        {isOwner && (
+        {isManagerOrOwner && (
           <button onClick={() => setActiveTab("administratie")} className={tabClass("administratie")}><Lock className="w-4 h-4" /> Website Administratie</button>
         )}
       </div>
@@ -1679,12 +1679,12 @@ export default function EmployeePanel({
           {/* 5. WEBSITE ADMINISTRATIE */}
           {activeTab === "administratie" && (
             <div className="space-y-6 relative overflow-hidden animate-fade-in text-xs">
-              {!isOwner && (
+              {!isManagerOrOwner && (
                 <div className="absolute inset-0 bg-[#1e1f22]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
                   <Lock className="w-12 h-12 text-[#A87E43] bg-[#A87E43]/15 p-2.5 rounded-full" />
                   <div>
-                    <h4 className="text-sm font-black text-white uppercase tracking-wider font-sans">Eigenaar Toegang Toegestaan</h4>
-                    <p className="text-[11px] text-[#949ba4] max-w-sm mt-1">U hebt geen rechten om deze pagina te bekijken. Alleen de eigenaar kan de website-administratie beheren.</p>
+                    <h4 className="text-sm font-black text-white uppercase tracking-wider font-sans">Eigenaar of Manager Toegang Vereist</h4>
+                    <p className="text-[11px] text-[#949ba4] max-w-sm mt-1">U hebt geen rechten om deze pagina te bekijken. Alleen de eigenaar en managers kunnen de website-administratie beheren.</p>
                   </div>
                 </div>
               )}
