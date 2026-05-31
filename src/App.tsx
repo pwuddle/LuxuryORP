@@ -360,7 +360,7 @@ export default function App() {
         const updatedVehicle = { ...targetVehicle, stock: targetVehicle.stock - 1 };
         setVehicles((prev) => prev.map((v) => (v.id === targetVehicle.id ? updatedVehicle : v)));
 
-        fetch("/api/dealership/vehicles", {
+        fetch("/api/dealership/vehicles?cause=verkoop", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(updatedVehicle),

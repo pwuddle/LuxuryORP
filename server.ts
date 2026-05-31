@@ -24,6 +24,40 @@ let registeredCustomers: any[] = [];
 let editedCustomers: Record<string, any> = {};
 let spreadsheetUrl: string = "";
 
+let isSpreadsheetSyncing = false;
+
+// Helper to send logs to Discord
+async function sendDiscordLog(channelIdEnvName: string, text: string, ignoreSyncCheck = false) {
+  if (isSpreadsheetSyncing && !ignoreSyncCheck) {
+    // Suppress logs during active spreadsheet imports/exports
+    return;
+  }
+  const channelId = process.env[channelIdEnvName];
+  const botTokenRaw = process.env.DISCORD_BOT_TOKEN;
+  if (!channelId || !botTokenRaw) {
+    console.log(`[Discord Log Skipped] Environment variable ${channelIdEnvName} or DISCORD_BOT_TOKEN not configured.`);
+    return;
+  }
+  const token = botTokenRaw.startsWith("Bot ") ? botTokenRaw.substring(4).trim() : botTokenRaw.trim();
+  try {
+    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bot ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content: text,
+      }),
+    });
+    if (!response.ok) {
+      console.error(`[Discord Log Error] Direct message sending failed for ${channelIdEnvName}:`, await response.text());
+    }
+  } catch (error) {
+    console.error(`[Discord Log Error] Fetch failed for ${channelIdEnvName}:`, error);
+  }
+}
+
 // Google API configuration and OAuth tokens
 let googleClientId: string = "";
 let googleClientSecret: string = "";
@@ -285,6 +319,7 @@ async function startServer() {
       return { success: false, message: "Server is niet verbonden met Google. Sla eerst uw Client-gegevens op en klik op 'Koppel Google Account'." };
     }
 
+    isSpreadsheetSyncing = true;
     try {
       // 1. Fetch current sheets to see if tabs exist
       const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
@@ -416,10 +451,17 @@ async function startServer() {
         }
       }
 
+      // Send unified log message to all three logging channels, bypassing the syncing flag
+      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", "🔄 **Google Sheets Synchronisatie**: De gegevens in de catalogus zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", "🔄 **Google Sheets Synchronisatie**: De klantgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", "🔄 **Google Sheets Synchronisatie**: De verkoopgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+
       return { success: true, message: "Gegevens succesvol live gesynchroniseerd met Google Spreadsheet!" };
     } catch (error: any) {
       console.error("Google sheets sync error:", error);
       return { success: false, message: `Sync mislukt: ${error.message}` };
+    } finally {
+      isSpreadsheetSyncing = false;
     }
   }
 
@@ -446,6 +488,7 @@ async function startServer() {
     }
 
     try {
+      isSpreadsheetSyncing = true;
       // Fetch sheet details to see which tabs exist
       const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
       const metaRes = await fetch(metadataUrl, {
@@ -849,6 +892,11 @@ async function startServer() {
         summary = "Koppeling succesvol tot stand gebracht, maar er werden geen bruikbare rijen gevonden in de tabbladen 'Catalogus', 'Klanten' of 'Verkopen'.";
       }
 
+      // Send unified log message to all three logging channels, bypassing the syncing flag
+      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", "🔄 **Google Sheets Synchronisatie**: De gegevens in de catalogus zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", "🔄 **Google Sheets Synchronisatie**: De klantgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", "🔄 **Google Sheets Synchronisatie**: De verkoopgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+
       return {
         success: true,
         message: summary,
@@ -865,6 +913,8 @@ async function startServer() {
         importedCustomersCount: 0,
         importedSalesCount: 0
       };
+    } finally {
+      isSpreadsheetSyncing = false;
     }
   }
 
@@ -1156,20 +1206,44 @@ async function startServer() {
       return res.status(400).json({ error: "Ongeldige voertuiggegevens" });
     }
     const idx = vehicles.findIndex(v => v.id === vehicle.id);
+    let previousVehicle: Vehicle | null = null;
     if (idx !== -1) {
+      previousVehicle = { ...vehicles[idx] };
       vehicles[idx] = vehicle;
     } else {
       vehicles.push(vehicle);
     }
     saveState();
+
+    // Discord Logging
+    if (!isSpreadsheetSyncing) {
+      if (previousVehicle) {
+        if (previousVehicle.stock !== vehicle.stock) {
+          const causeParam = (req.query.cause as string) || "handmatig";
+          const causeText = causeParam === "verkoop" ? "Verkoop" : "Handmatige aanpassing door een medewerker";
+          sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", `📦 **Catalogus Voorraad Verandering**:\n- **Voertuig**: ${vehicle.brand} ${vehicle.name} (ID: ${vehicle.id})\n- **Voorraad**: van **${previousVehicle.stock}** naar **${vehicle.stock}**\n- **Oorzaak**: ${causeText}`);
+        } else {
+          sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", `📝 **Catalogus Voertuig Gewijzigd**:\n- **Voertuig**: ${vehicle.brand} ${vehicle.name} (ID: ${vehicle.id})\n- **Categorie**: ${vehicle.category}\n- **Verkoopprijs**: €${vehicle.price.toLocaleString("nl-NL")}\n- **Inkoopprijs**: €${vehicle.purchasePrice.toLocaleString("nl-NL")}\n- **Inzittenden**: ${vehicle.inzittenden} plekken\n- **Topsnelheid (Stock)**: ${vehicle.topSpeedStock} km/h\n- **Topsnelheid (Tuned)**: ${vehicle.topSpeedTuned} km/h\n- **Voorraad**: ${vehicle.stock}\n- **Status**: ${vehicle.isSoldOut ? "Uitverkocht" : "Actief"}`);
+        }
+      } else {
+        sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", `🆕 **Nieuw Voertuig Toegevoegd**:\n- **Voertuig**: ${vehicle.brand} ${vehicle.name} (ID: ${vehicle.id})\n- **Categorie**: ${vehicle.category}\n- **Verkoopprijs**: €${vehicle.price.toLocaleString("nl-NL")}\n- **Inkoopprijs**: €${vehicle.purchasePrice.toLocaleString("nl-NL")}\n- **Inzittenden**: ${vehicle.inzittenden} plekken\n- **Topsnelheid (Stock)**: ${vehicle.topSpeedStock} km/h\n- **Topsnelheid (Tuned)**: ${vehicle.topSpeedTuned} km/h\n- **Voorraad**: ${vehicle.stock}`);
+      }
+    }
+
     res.json({ success: true, vehicle });
   });
 
   // API Route: Delete a vehicle from the catalog
   app.delete("/api/dealership/vehicles/:id", (req, res) => {
     const { id } = req.params;
+    const targetVehicle = vehicles.find(v => v.id === id);
     vehicles = vehicles.filter(v => v.id !== id);
     saveState();
+
+    if (!isSpreadsheetSyncing && targetVehicle) {
+      sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", `🗑️ **Catalogus Voertuig Verwijderd**:\n- **Voertuig**: ${targetVehicle.brand} ${targetVehicle.name} (ID: ${id})`);
+    }
+
     res.json({ success: true });
   });
 
@@ -1196,30 +1270,85 @@ async function startServer() {
       return res.status(400).json({ error: "Ongeldige verkoopgegevens" });
     }
     const idx = sales.findIndex(s => s.id === sale.id);
+    let isNewSale = (idx === -1);
+    let prevSale: SaleRecord | null = null;
     if (idx !== -1) {
+      prevSale = { ...sales[idx] };
       sales[idx] = sale;
     } else {
       sales.push(sale);
     }
     saveState();
+
+    if (!isSpreadsheetSyncing) {
+      if (isNewSale) {
+        const vehicle = vehicles.find(v => v.id === sale.vehicleId);
+        const vehicleInfo = vehicle 
+          ? `\n**Voertuig Parameters:**\n` +
+            `- **Merk/Naam**: ${vehicle.brand} ${vehicle.name}\n` +
+            `- **ID**: ${vehicle.id}\n` +
+            `- **Categorie**: ${vehicle.category}\n` +
+            `- **Inkoopprijs**: €${vehicle.purchasePrice.toLocaleString("nl-NL")}\n` +
+            `- **Verkoopprijs**: €${vehicle.price.toLocaleString("nl-NL")}\n` +
+            `- **Inzittenden / Plekken**: ${vehicle.inzittenden} plekken\n` +
+            `- **Topsnelheid (Stock)**: ${vehicle.topSpeedStock} km/h\n` +
+            `- **Topsnelheid (Tuned)**: ${vehicle.topSpeedTuned} km/h\n` +
+            `- **Laatste Voorraad**: ${vehicle.stock} stuks\n` +
+            `- **Omschrijving**: ${vehicle.description || "Geen omschrijving"}\n` +
+            `- **Afbeelding URL**: ${vehicle.image || "Geen afbeelding"}`
+          : `\n- **Voertuig**: ${sale.vehicleName} (ID: ${sale.vehicleId || "Niet gevonden"})`;
+
+        const logMessage = `💰 **Nieuwe Verkoop Geregistreerd**:\n` +
+          `- **Verkoop Referentie (ID)**: ${sale.id}\n` +
+          `- **Koper Naam**: ${sale.buyerName}\n` +
+          `- **Koper Discord ID**: ${sale.buyerDiscordId}\n` +
+          `- **Prijs Betaald**: €${Number(sale.pricePaid || 0).toLocaleString("nl-NL")}\n` +
+          `- **Verkoper**: ${sale.salesperson}\n` +
+          `- **Status**: ${sale.status}\n` +
+          `- **Datum**: ${sale.date}\n` +
+          vehicleInfo;
+
+        sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", logMessage);
+      } else if (prevSale) {
+        if (prevSale.status !== sale.status) {
+          sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", `🔄 **Verkoop Status Gewijzigd**:\n- **Referentie (ID)**: ${sale.id}\n- **Koper**: ${sale.buyerName}\n- **Voertuig**: ${sale.vehicleName}\n- **Vorige Status**: ${prevSale.status}\n- **Nieuwe Status**: ${sale.status}`);
+        } else {
+          sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", `📝 **Verkoopgegevens Aangepast**:\n- **Referentie (ID)**: ${sale.id}\n- **Koper**: ${sale.buyerName}\n- **Voertuig**: ${sale.vehicleName}\n- **Status**: ${sale.status}`);
+        }
+      }
+    }
+
     res.json({ success: true, sale });
   });
 
   // API Route: Delete a sale record (annul/delete)
   app.delete("/api/dealership/sales/:id", (req, res) => {
     const { id } = req.params;
+    const targetSale = sales.find(s => s.id === id);
     sales = sales.filter(s => s.id !== id);
     saveState();
+
+    if (!isSpreadsheetSyncing && targetSale) {
+      sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", `🗑️ **Verkoop Geannuleerd / Verwijderd**:\n- **Referentie (ID)**: ${id}\n- **Koper**: ${targetSale.buyerName}\n- **Voertuig**: ${targetSale.vehicleName}\n- **Verkoper**: ${targetSale.salesperson}`);
+    }
+
     res.json({ success: true });
   });
 
   // API Route: Delete a customer (mark as deleted)
   app.delete("/api/dealership/customers/:id", (req, res) => {
     const { id } = req.params;
+    const registered = registeredCustomers.find(c => c.id === id);
+    const displayName = registered ? `${registered.globalName || registered.username} (@${registered.username})` : `ID: ${id}`;
     if (!deletedCustomerIds.includes(id)) {
       deletedCustomerIds.push(id);
     }
     saveState();
+
+    if (!isSpreadsheetSyncing) {
+      sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", `🗑️ **Klant Gearchiveerd/Verwijderd**:\n- **Klant**: ${displayName}\n- **ID**: ${id}`);
+    }
+
     res.json({ success: true, deletedCustomerIds });
   });
 
@@ -1231,6 +1360,7 @@ async function startServer() {
     }
     // Check if duplicate (already registered)
     const existingCustomer = registeredCustomers.find(c => c.id === visitor.id);
+    const isNew = !existingCustomer;
     if (!existingCustomer) {
       registeredCustomers.push({
         id: visitor.id,
@@ -1252,6 +1382,11 @@ async function startServer() {
       deletedCustomerIds = deletedCustomerIds.filter(id => id !== visitor.id);
     }
     saveState();
+
+    if (!isSpreadsheetSyncing && isNew) {
+      sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", `👋 **Nieuwe Klant Geregistreerd**:\n- **Klant**: ${visitor.globalName || visitor.username} (@${visitor.username})\n- **ID**: ${visitor.id}`);
+    }
+
     res.json({ success: true, registeredCustomers, deletedCustomerIds });
   });
 
@@ -1261,12 +1396,24 @@ async function startServer() {
     if (!id) {
       return res.status(400).json({ error: "ID is verplicht" });
     }
+    const prevData = editedCustomers[id] ? { ...editedCustomers[id] } : null;
     editedCustomers[id] = {
       fullName,
       bsn,
       birthDate
     };
     saveState();
+
+    if (!isSpreadsheetSyncing) {
+      const registered = registeredCustomers.find(c => c.id === id);
+      const displayName = registered ? `${registered.globalName || registered.username} (@${registered.username})` : `Klant (ID: ${id})`;
+      let logMessage = `👤 **Klantgegevens Gewijzigd**:\n- **Klant**: ${displayName}\n- **ID**: ${id}\n- **Nieuwe Gegevens**:\n  - **In-Game Naam (IC)**: ${fullName || "-"}\n  - **BSN**: ${bsn || "-"}\n  - **Geboortedatum**: ${birthDate || "-"}`;
+      if (prevData) {
+        logMessage += `\n- **Oude Gegevens**:\n  - **In-Game Naam (IC)**: ${prevData.fullName || "-"}\n  - **BSN**: ${prevData.bsn || "-"}\n  - **Geboortedatum**: ${prevData.birthDate || "-"}`;
+      }
+      sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", logMessage);
+    }
+
     res.json({ success: true, editedCustomers });
   });
 
