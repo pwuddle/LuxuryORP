@@ -47,7 +47,12 @@ async function sendDiscordLog(channelIdEnvName: string, text: string, ignoreSync
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        content: text,
+        embeds: [
+          {
+            description: text,
+            color: parseInt("7f6f4d", 16)
+          }
+        ]
       }),
     });
     if (!response.ok) {
@@ -304,7 +309,7 @@ async function startServer() {
   }
 
   // Core Sync to Google Sheets Function
-  async function syncAllToGoogleSheets(): Promise<{ success: boolean; message: string }> {
+  async function syncAllToGoogleSheets(isManual = false): Promise<{ success: boolean; message: string }> {
     if (!spreadsheetUrl) {
       return { success: false, message: "Geen Google Spreadsheet URL geconfigureerd." };
     }
@@ -451,10 +456,12 @@ async function startServer() {
         }
       }
 
-      // Send unified log message to all three logging channels, bypassing the syncing flag
-      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", "🔄 **Google Sheets Synchronisatie**: De gegevens in de catalogus zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
-      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", "🔄 **Google Sheets Synchronisatie**: De klantgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
-      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", "🔄 **Google Sheets Synchronisatie**: De verkoopgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      if (isManual) {
+        // Send unified log message to all three logging channels, bypassing the syncing flag
+        await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", "🔄 **Google Sheets Synchronisatie**: De gegevens in de catalogus zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+        await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", "🔄 **Google Sheets Synchronisatie**: De klantgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+        await sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", "🔄 **Google Sheets Synchronisatie**: De verkoopgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      }
 
       return { success: true, message: "Gegevens succesvol live gesynchroniseerd met Google Spreadsheet!" };
     } catch (error: any) {
@@ -466,7 +473,7 @@ async function startServer() {
   }
 
   // Core Import from Google Sheets Function
-  async function importAllFromGoogleSheetsInternal(): Promise<{
+  async function importAllFromGoogleSheetsInternal(isManual = false): Promise<{
     success: boolean;
     message: string;
     importedCatalogCount: number;
@@ -892,10 +899,12 @@ async function startServer() {
         summary = "Koppeling succesvol tot stand gebracht, maar er werden geen bruikbare rijen gevonden in de tabbladen 'Catalogus', 'Klanten' of 'Verkopen'.";
       }
 
-      // Send unified log message to all three logging channels, bypassing the syncing flag
-      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", "🔄 **Google Sheets Synchronisatie**: De gegevens in de catalogus zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
-      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", "🔄 **Google Sheets Synchronisatie**: De klantgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
-      await sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", "🔄 **Google Sheets Synchronisatie**: De verkoopgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      if (isManual) {
+        // Send unified log message to all three logging channels, bypassing the syncing flag
+        await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CATALOG", "🔄 **Google Sheets Synchronisatie**: De gegevens in de catalogus zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+        await sendDiscordLog("DISCORD_CHANNEL_LOGGING_CUSTOMER", "🔄 **Google Sheets Synchronisatie**: De klantgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+        await sendDiscordLog("DISCORD_CHANNEL_LOGGING_SALES", "🔄 **Google Sheets Synchronisatie**: De verkoopgegevens zijn succesvol gesynchroniseerd met de gekoppelde spreadsheet.", true);
+      }
 
       return {
         success: true,
@@ -1189,13 +1198,13 @@ async function startServer() {
 
   // Google Sheets forced manual synchronization API
   app.post("/api/dealership/google-sync", async (req, res) => {
-    const result = await syncAllToGoogleSheets();
+    const result = await syncAllToGoogleSheets(true);
     res.json(result);
   });
 
   // Google Sheets manual import from Spreadsheet logic
   app.post("/api/dealership/google-import", async (req, res) => {
-    const result = await importAllFromGoogleSheetsInternal();
+    const result = await importAllFromGoogleSheetsInternal(true);
     res.json(result);
   });
 
