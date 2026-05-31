@@ -1020,17 +1020,17 @@ async function startServer() {
       saveState(true);
 
       if (spreadsheetUrl) {
-        console.log("Google Sheets connection successful. Automatically synchronizing current website dataset to the spreadsheet...");
-        syncAllToGoogleSheets()
+        console.log("Google Sheets connection successful. Automatically importing current datasets from the spreadsheet...");
+        importAllFromGoogleSheetsInternal()
           .then(result => {
             if (result.success) {
-              console.log("Auto-sync to Google Sheets on connection success:", result.message);
+              console.log("Auto-import on connection success:", result.message);
             } else {
-              console.warn("Auto-sync to Google Sheets on connection warning:", result.message);
+              console.warn("Auto-import on connection warning:", result.message);
             }
           })
           .catch(e => {
-            console.error("Auto-sync to Google Sheets on connection failed:", e);
+            console.error("Auto-import on connection failed:", e);
           });
       }
 
