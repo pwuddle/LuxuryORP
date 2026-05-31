@@ -10,6 +10,7 @@ import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import { INITIAL_VEHICLES, INITIAL_REQUESTS, INITIAL_SALES } from "./src/data";
 import { Vehicle, PurchaseRequest, SaleRecord } from "./src/types";
+import { startDiscordBot } from "./discordBot";
 
 // Load environment variables
 dotenv.config();
@@ -231,6 +232,16 @@ function saveState(skipGoogleSync: boolean = false) {
 
 // Load current persistent state info on startup
 loadState();
+
+// Initialize and start the Discord Bot with real-time state getters
+startDiscordBot({
+  getVehicles: () => vehicles,
+  getSales: () => sales,
+  getRegisteredCustomers: () => registeredCustomers,
+  getEditedCustomers: () => editedCustomers,
+  getDeletedCustomerIds: () => deletedCustomerIds,
+  getSpreadsheetUrl: () => spreadsheetUrl,
+});
 
 async function startServer() {
   const app = express();
