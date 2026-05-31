@@ -449,6 +449,7 @@ export default function App() {
               requests={requests}
               sales={sales}
               deletedCustomerIds={deletedCustomerIds}
+              vehicles={vehicles}
               onStartOAuth={handleStartOAuth}
             />
           )}

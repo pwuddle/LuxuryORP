@@ -11,7 +11,7 @@ import {
   ArrowRight, ShieldAlert, BadgeInfo, CreditCard, Send, Sparkles 
 } from "lucide-react";
 import { INITIAL_USER_VEHICLES, INITIAL_INVOICES, INITIAL_VEHICLES } from "../data";
-import { Invoice, PurchaseRequest, SaleRecord } from "../types";
+import { Invoice, PurchaseRequest, SaleRecord, Vehicle } from "../types";
 
 interface ClientPanelProps {
   isDarkMode: boolean;
@@ -19,10 +19,11 @@ interface ClientPanelProps {
   requests: PurchaseRequest[];
   sales: SaleRecord[];
   deletedCustomerIds: string[];
+  vehicles: Vehicle[];
   onStartOAuth: (pane: "klantenpaneel" | "medewerkerpaneel") => void;
 }
 
-export default function ClientPanel({ isDarkMode, user, requests, sales, deletedCustomerIds, onStartOAuth }: ClientPanelProps) {
+export default function ClientPanel({ isDarkMode, user, requests, sales, deletedCustomerIds, vehicles, onStartOAuth }: ClientPanelProps) {
   // Local state for client data
   const [supportMessage, setSupportMessage] = useState("");
   const [ticketStatus, setTicketStatus] = useState<string | null>(null);
@@ -65,6 +66,7 @@ export default function ClientPanel({ isDarkMode, user, requests, sales, deleted
       .filter(s => s.buyerDiscordId === user.id && (s.status === "Betaald" || s.status === "Opgehaald"))
       .map((s) => ({
         id: `dyn_uv_${s.id}`,
+        vehicleId: s.vehicleId,
         vehicleName: s.vehicleName,
         plate: "PS-" + Math.floor(10 + Math.random() * 89) + "-XG",
         purchaseDate: s.date,
@@ -196,8 +198,11 @@ export default function ClientPanel({ isDarkMode, user, requests, sales, deleted
             {userVehicles.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {userVehicles.map((v) => {
-                  const matchedVehicle = INITIAL_VEHICLES.find(
-                    vh => vh.name.toLowerCase() === v.vehicleName.toLowerCase()
+                  const matchedVehicle = vehicles?.find(
+                    vh =>
+                      (v.vehicleId && vh.id === v.vehicleId) ||
+                      vh.name.toLowerCase() === v.vehicleName.toLowerCase() ||
+                      `${vh.brand} ${vh.name}`.toLowerCase() === v.vehicleName.toLowerCase()
                   );
                   const seats = matchedVehicle?.inzittenden || 2;
                   return (
