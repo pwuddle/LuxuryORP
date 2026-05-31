@@ -331,7 +331,7 @@ async function startServer() {
       // 2. Prepare datasets for each sheet
       // Tab: Catalogus
       const catalogData = [
-        ["ID", "Merk/Naam", "Categorie", "Inkoopprijs", "Verkoopprijs", "Voorraad", "Snelheid (Stock)", "Snelheid (Tuned)", "Plekken", "Status (Uitverkocht?)", "Omschrijving"],
+        ["ID", "Merk/Naam", "Categorie", "Inkoopprijs", "Verkoopprijs", "Voorraad", "Snelheid (Stock)", "Snelheid (Tuned)", "Plekken", "Status (Uitverkocht?)", "Omschrijving", "Afbeelding URL"],
         ...vehicles.map(v => [
           v.id,
           `${v.brand} ${v.name}`,
@@ -343,7 +343,8 @@ async function startServer() {
           v.topSpeedTuned,
           v.inzittenden,
           v.isSoldOut ? "JA" : "NEE",
-          v.description || ""
+          v.description || "",
+          v.image || ""
         ])
       ];
 
@@ -484,7 +485,8 @@ async function startServer() {
               speedTuned: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("tuned")), // speed tuned
               plekken: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("plek") || h.toLowerCase().includes("inzittenden"))),
               status: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("status") || h.toLowerCase().includes("uitverkocht"))),
-              description: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("omschrijving") || h.toLowerCase().includes("beschrijving")))
+              description: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("omschrijving") || h.toLowerCase().includes("beschrijving"))),
+              image: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("afbeelding") || h.toLowerCase().includes("image") || h.toLowerCase().includes("foto") || h.toLowerCase().includes("url")))
             };
 
             const newVehicles: Vehicle[] = [];
@@ -558,9 +560,11 @@ async function startServer() {
 
               const description = getVal("description", 10);
               
+              const imageVal = getVal("image", 11);
+              
               // Find existing vehicle to preserve image or properties
               const existingVehicle = vehicles.find(v => v.id === idVal);
-              const image = existingVehicle?.image || `https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800`;
+              const image = imageVal || existingVehicle?.image || `https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800`;
               const featured = existingVehicle?.featured || false;
 
               newVehicles.push({
