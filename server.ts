@@ -476,17 +476,60 @@ async function startServer() {
             const headerRow = rows[0] || [];
             const colMap: Record<string, number> = {
               id: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("id")),
-              brandName: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("merk") || h.toLowerCase().includes("naam") || h.toLowerCase().includes("model"))),
-              category: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("cat")),
-              purchasePrice: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("inkoop")),
-              price: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("verkoop") || h.toLowerCase().includes("prijs"))),
-              stock: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("voorraad")),
-              speedStock: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("stock")), // speed stock
-              speedTuned: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("tuned")), // speed tuned
-              plekken: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("plek") || h.toLowerCase().includes("inzittenden"))),
-              status: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("status") || h.toLowerCase().includes("uitverkocht"))),
-              description: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("omschrijving") || h.toLowerCase().includes("beschrijving"))),
-              image: headerRow.findIndex((h: string) => h && (h.toLowerCase().includes("afbeelding") || h.toLowerCase().includes("image") || h.toLowerCase().includes("foto") || h.toLowerCase().includes("url")))
+              brandName: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("merk") || lh.includes("naam") || lh.includes("model") || lh.includes("vehicle") || lh.includes("brand");
+              }),
+              category: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("cat") || lh.includes("type");
+              }),
+              purchasePrice: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("inkoop") || lh.includes("purchase") || lh.includes("buy");
+              }),
+              price: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                // Check for selling-price specific terms OR general price terms, but EXCLUDE purchase-specific terms!
+                const isPurchase = lh.includes("inkoop") || lh.includes("purchase") || lh.includes("buy");
+                if (isPurchase) return false;
+                return lh.includes("verkoop") || lh.includes("selling") || lh.includes("prijs") || lh.includes("price") || lh.includes("tarief") || lh.includes("sales");
+              }),
+              stock: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("voorraad") || lh.includes("stock") || lh.includes("aantal");
+              }),
+              speedStock: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("stock") && !lh.includes("voorraad");
+              }),
+              speedTuned: headerRow.findIndex((h: string) => h && h.toLowerCase().includes("tuned")),
+              plekken: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("plek") || lh.includes("inzittenden") || lh.includes("seat") || lh.includes("passagiers");
+              }),
+              status: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("status") || lh.includes("uitverkocht") || lh.includes("sold");
+              }),
+              description: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("omschrijving") || lh.includes("beschrijving") || lh.includes("description") || lh.includes("info");
+              }),
+              image: headerRow.findIndex((h: string) => {
+                if (!h) return false;
+                const lh = h.toLowerCase();
+                return lh.includes("afbeelding") || lh.includes("image") || lh.includes("foto") || lh.includes("url") || lh.includes("img") || lh.includes("pic");
+              })
             };
 
             const newVehicles: Vehicle[] = [];
@@ -529,16 +572,36 @@ async function startServer() {
               else if (lCat.includes("suv") || lCat.includes("off-road") || lCat.includes("terrein") || lCat.includes("road")) category = "SUV/Off-Road";
               else if (lCat.includes("classic") || lCat.includes("klassiek")) category = "Classic";
 
-              // Clean prices helper to remove euros, currency symbols, and commas
+              // Clean prices helper to remove euros, currency symbols, and commas/dots
               const cleanNumberStr = (str: string) => {
-                let clean = str.replace(/[€$£\s]/g, "");
+                if (!str) return "0";
+                let clean = str.replace(/[€$£\s]/g, "").trim();
+                
+                // If there are both dots and commas (e.g. 900.000,00 or 900,000.00)
                 if (clean.includes(",") && clean.includes(".")) {
-                  clean = clean.replace(/,/g, "");
-                } else if (clean.includes(",")) {
-                  if (clean.split(",")[1]?.length === 3) {
+                  const lastDot = clean.lastIndexOf(".");
+                  const lastComma = clean.lastIndexOf(",");
+                  if (lastDot > lastComma) {
+                    // Dot is the decimal separator (e.g. 900,000.00)
                     clean = clean.replace(/,/g, "");
                   } else {
-                    clean = clean.replace(/,/g, ".");
+                    // Comma is the decimal separator (e.g. 900.000,00)
+                    clean = clean.replace(/\./g, "").replace(",", ".");
+                  }
+                } else if (clean.includes(",")) {
+                  // Only commas (e.g. 900,000 or 1500,50)
+                  const parts = clean.split(",");
+                  if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+                    clean = clean.replace(/,/g, "");
+                  } else {
+                    // Decimal comma (e.g. 1500,50)
+                    clean = clean.replace(",", ".");
+                  }
+                } else if (clean.includes(".")) {
+                  // Only dots (e.g. 900.000 or 1500.50)
+                  const parts = clean.split(".");
+                  if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+                    clean = clean.replace(/\./g, "");
                   }
                 }
                 return clean;
@@ -566,6 +629,8 @@ async function startServer() {
               const existingVehicle = vehicles.find(v => v.id === idVal);
               const image = imageVal || existingVehicle?.image || `https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800`;
               const featured = existingVehicle?.featured || false;
+
+              console.log(`[Google Spreadsheet Import] Voertuig ingelezen: id=${idVal}, merk/naam="${brand} ${name}", prijs=${price} (inkoop=${purchasePrice}), afbeelding="${image}", omschrijving="${description ? description.substring(0, 30) + '...' : ''}"`);
 
               newVehicles.push({
                 id: idVal,
@@ -854,6 +919,41 @@ async function startServer() {
     });
   });
 
+  // Get full credentials and tokens so they can be securely backed up in the owner's browser
+  app.get("/api/dealership/google-full-state", (req, res) => {
+    res.json({
+      spreadsheetUrl,
+      googleClientId,
+      googleClientSecret,
+      googleAccessToken,
+      googleRefreshToken,
+      googleTokenExpiry
+    });
+  });
+
+  // Restore full credentials from the browser backup (e.g. after a container reboot/recompile)
+  app.post("/api/dealership/google-restore-state", (req, res) => {
+    const {
+      spreadsheetUrl: sUrl,
+      googleClientId: gClientId,
+      googleClientSecret: gClientSecret,
+      googleAccessToken: gAccessToken,
+      googleRefreshToken: gRefreshToken,
+      googleTokenExpiry: gTokenExpiry
+    } = req.body;
+
+    if (sUrl) spreadsheetUrl = sUrl;
+    if (gClientId) googleClientId = gClientId;
+    if (gClientSecret) googleClientSecret = gClientSecret;
+    if (gAccessToken) googleAccessToken = gAccessToken;
+    if (gRefreshToken) googleRefreshToken = gRefreshToken;
+    if (gTokenExpiry) googleTokenExpiry = Number(gTokenExpiry) || 0;
+
+    saveState(true);
+    console.log("Successfully restored Google Sheets authentication states from frontend localStorage backup.");
+    res.json({ success: true, isConnected: !!googleRefreshToken });
+  });
+
   // Redirect client to Google Consent Dialog
   app.get("/api/dealership/google-auth-start", (req, res) => {
     if (!googleClientId) {
@@ -920,17 +1020,17 @@ async function startServer() {
       saveState(true);
 
       if (spreadsheetUrl) {
-        console.log("Google Sheets connection successful. Automatically reading current datasets to avoid overrides...");
-        importAllFromGoogleSheetsInternal()
+        console.log("Google Sheets connection successful. Automatically synchronizing current website dataset to the spreadsheet...");
+        syncAllToGoogleSheets()
           .then(result => {
             if (result.success) {
-              console.log("Auto-import on connection success:", result.message);
+              console.log("Auto-sync to Google Sheets on connection success:", result.message);
             } else {
-              console.warn("Auto-import on connection warning:", result.message);
+              console.warn("Auto-sync to Google Sheets on connection warning:", result.message);
             }
           })
           .catch(e => {
-            console.error("Auto-import on connection failed:", e);
+            console.error("Auto-sync to Google Sheets on connection failed:", e);
           });
       }
 

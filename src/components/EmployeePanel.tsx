@@ -120,14 +120,55 @@ export default function EmployeePanel({
 
   // Fetch secure Google Sheets configuration
   useEffect(() => {
-    if (user?.isOwner) {
+    if (user?.isOwner || user?.isManager) {
       fetch("/api/dealership/google-config")
         .then(res => res.json())
         .then(data => {
+          // If the server lost its connection data (e.g. rebooted/recompiled), but we have a backup in our browser
+          const backupStr = localStorage.getItem("dealership_google_full_state");
+          if (!data.isConnected && backupStr) {
+            try {
+              const backup = JSON.parse(backupStr);
+              if (backup.googleRefreshToken) {
+                console.log("[Google Sheets] Restoring authorization state variables from browser localStorage backup...");
+                fetch("/api/dealership/google-restore-state", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: backupStr
+                })
+                  .then(r => r.json())
+                  .then(restoreRes => {
+                    if (restoreRes.success) {
+                      setIsConnected(true);
+                      if (backup.spreadsheetUrl) setSpreadsheetUrl(backup.spreadsheetUrl);
+                      if (backup.googleClientId) setGoogleClientId(backup.googleClientId);
+                      if (backup.googleClientSecret) setGoogleClientSecret(backup.googleClientSecret);
+                    }
+                  })
+                  .catch(err => console.warn("Fout bij herstellen Google credentials:", err));
+                return;
+              }
+            } catch (e) {
+              console.error("Local backup restore failed:", e);
+            }
+          }
+
           if (data.spreadsheetUrl) setSpreadsheetUrl(data.spreadsheetUrl);
           if (data.googleClientId) setGoogleClientId(data.googleClientId);
           if (data.googleClientSecret) setGoogleClientSecret(data.googleClientSecret);
           setIsConnected(!!data.isConnected);
+
+          if (data.isConnected) {
+            // Silently keep browser localStorage backup updated with latest active states
+            fetch("/api/dealership/google-full-state")
+              .then(res => res.json())
+              .then(fullState => {
+                if (fullState && fullState.googleRefreshToken) {
+                  localStorage.setItem("dealership_google_full_state", JSON.stringify(fullState));
+                }
+              })
+              .catch(err => console.warn("[Google Sheets] Backup retrieval on load skipped:", err));
+          }
         })
         .catch(err => console.error("Fout bij laden Google Sheets config:", err));
     }
@@ -140,6 +181,17 @@ export default function EmployeePanel({
         setIsConnected(true);
         setSaveMessage({ text: "Google Sheets verbinding succesvol tot stand gebracht!", error: false });
         setTimeout(() => setSaveMessage(null), 5000);
+
+        // Fetch full state to save a fresh backup in localStorage
+        fetch("/api/dealership/google-full-state")
+          .then(res => res.json())
+          .then(fullState => {
+            if (fullState && fullState.googleRefreshToken) {
+              localStorage.setItem("dealership_google_full_state", JSON.stringify(fullState));
+              console.log("[Google Sheets] Fresh authentication state backup saved to browser localStorage.");
+            }
+          })
+          .catch(err => console.warn("Could not backup Google Sheets configuration:", err));
       }
     };
     window.addEventListener("message", handleGoogleMessage);
@@ -217,6 +269,7 @@ export default function EmployeePanel({
       .then(res => res.json())
       .then(() => {
         setIsConnected(false);
+        localStorage.removeItem("dealership_google_full_state");
         setSaveMessage({ text: "Google-account succesvol ontkoppeld.", error: false });
         setTimeout(() => setSaveMessage(null), 4000);
       })
